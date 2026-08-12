@@ -4,6 +4,15 @@ This is a from-scratch rebuild of the project in `AI_Allergen_Compliance_Present
 
 Everything is provisioned with Terraform and is fully tear-down-able with `terraform destroy` (see "Destroying everything" below).
 
+## Allergen source of truth
+
+The mandatory declarable allergen list is taken from the NZ MPI official page
+[Allergen declarations, warnings and advisory statements on food labels](https://www.mpi.govt.nz/food-business/labelling-composition-food-drinks/allergen-declarations-warnings-and-advisory-statements-on-food-labels):
+
+> peanuts, almonds, Brazil nuts, cashews, hazelnuts, macadamias, pecans, pine nuts, pistachios, walnuts, crustacean, **molluscs**, fish, milk, egg, wheat, soy, sesame, lupin.
+
+Plus: gluten (from wheat, rye, barley, oats, spelt, triticale) must also be listed, and added sulphites only when above 10 mg/kg. Each individual tree nut and cereal must be declared separately. These categories are implemented in `app/services/allergen_rules.py` (PEAL_CATEGORIES).
+
 ## What actually runs where
 
 | PDF architecture item | This build |
@@ -11,7 +20,7 @@ Everything is provisioned with Terraform and is fully tear-down-able with `terra
 | Application hosting | Elastic Beanstalk, provisioned by Terraform |
 | API Gateway + Cognito auth | Not required - Beanstalk's own load balancer serves the app directly. A Cognito User Pool is still provisioned (`terraform/cognito.tf`) to cover that checklist item for later use, but the demo UI does not enforce login yet |
 | Lambda two-step chain (Analyze -> Translate) | Runs as two plain function calls inside one Flask request (`app/application.py: _run_pipeline`) - no Lambda needed once the app has its own always-on compute (Beanstalk) |
-| Bedrock LLM anchored on NZ MPI PEAL knowledge base | Allergens are extracted by a Bedrock LLM call and cross-checked by a deterministic keyword rules engine (`app/services/allergen_rules.py`) built directly from the FSANZ Standard 1.2.3 mandatory declarable allergen list. The union of both is what's shown as "Contains X"; disagreements are flagged for human review |
+| Bedrock LLM anchored on NZ MPI PEAL knowledge base | Allergens are extracted by a Bedrock LLM call and cross-checked by a deterministic keyword rules engine (`app/services/allergen_rules.py`) built directly from the NZ MPI mandatory declarable allergen list (see "Allergen source of truth"). The union of both is what's shown as "Contains X"; disagreements are flagged for human review |
 | AWS Textract OCR | `app/services/textract_service.py` - only invoked when a file is uploaded |
 | Multilingual translation (Spanish, German, Japanese, Mandarin) | `app/services/bedrock_service.py::translate_dish` - Bedrock LLM primary, Amazon Translate as an automatic fallback if Bedrock fails |
 | DynamoDB (menus & allergen metadata) | `terraform/dynamodb.tf` + `app/services/dynamo_service.py` |
