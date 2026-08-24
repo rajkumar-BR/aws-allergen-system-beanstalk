@@ -99,7 +99,7 @@
         <div class="allergen-status-icon" aria-hidden="true">✓</div>
         <div>
           <strong>Allergen Status — AI + Rules-Engine Verified</strong>
-          <p class="muted">Every "Contains …" tag is the union of a Bedrock LLM read of the description and a deterministic FSANZ keyword scan — not a knowledge-base lookup. Disagreements between the two are flagged for a human reviewer.</p>
+          <p class="muted">Every "Contains …" tag is the union of a Bedrock LLM read of the description, a deterministic FSANZ keyword scan, and (when configured) a Bedrock RAG retrieval over the NZ PEAL regulatory docs — with the regulatory source shown for each allergen. Disagreements between the signals are flagged for a human reviewer.</p>
         </div>
       </div>
     </section>

@@ -38,6 +38,24 @@ variable "bedrock_model_id" {
   default     = "anthropic.claude-3-haiku-20240307-v1:0"
 }
 
+variable "create_knowledge_base" {
+  description = "OPT-IN: provision the Bedrock Knowledge Base for the compliance RAG layer (see bedrock_kb.tf). Off by default so the demo stack is unchanged."
+  type        = bool
+  default     = false
+}
+
+variable "knowledge_base_id" {
+  description = "Bedrock Knowledge Base id the app retrieves from for compliance verification. Empty = app runs rules-only (with local keyword retrieval over bundled kb_docs/)."
+  type        = string
+  default     = ""
+}
+
+variable "bedrock_embedding_model_arn" {
+  description = "Bedrock embedding model ARN used to index the knowledge base. Default is Amazon Titan Text Embeddings v2 in the default region (ap-southeast-2); change if you deploy elsewhere."
+  type        = string
+  default     = "arn:aws:bedrock:ap-southeast-2::foundation-model/amazon.titan-embed-text-v2:0"
+}
+
 variable "python_version_regex" {
   description = "Regex used to pick the Elastic Beanstalk Python solution stack."
   type        = string
