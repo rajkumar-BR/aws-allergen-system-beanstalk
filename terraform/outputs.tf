@@ -27,6 +27,27 @@ output "cognito_user_pool_id" {
   value = aws_cognito_user_pool.staff_pool.id
 }
 
+# ---- Knowledge Base outputs (only when create_knowledge_base = true) ----
+output "knowledge_base_id" {
+  value       = var.create_knowledge_base ? aws_bedrockagent_knowledge_base.peal[0].id : ""
+  description = "Bedrock Knowledge Base ID for RAG retrieval (set KNOWLEDGE_BASE_ID env var)"
+}
+
+output "knowledge_base_arn" {
+  value       = var.create_knowledge_base ? aws_bedrockagent_knowledge_base.peal[0].arn : ""
+  description = "Bedrock Knowledge Base ARN"
+}
+
+output "kb_docs_bucket" {
+  value       = var.create_knowledge_base ? aws_s3_bucket.kb_docs[0].bucket : ""
+  description = "S3 bucket containing PEAL reference documents"
+}
+
+output "data_source_id" {
+  value       = var.create_knowledge_base ? aws_bedrockagent_data_source.peal[0].id : ""
+  description = "Knowledge Base Data Source ID (for manual ingestion trigger)"
+}
+
 output "next_steps" {
   value = <<-EOT
     1. Wait for `eb_environment_name` health to show "Green"/"Ready":
@@ -39,5 +60,12 @@ output "next_steps" {
        Model access) - without it, allergen extraction/translation will
        silently fall back to the offline keyword-scan / Amazon Translate
        stubs instead of the LLM.
+    5. If Knowledge Base is enabled (create_knowledge_base = true):
+       - Get KB ID: terraform output knowledge_base_id
+       - Set env var: export KNOWLEDGE_BASE_ID=$(terraform output -raw knowledge_base_id)
+       - Trigger ingestion: aws bedrock-agent start-ingestion-job \
+           --knowledge-base-id $(terraform output -raw knowledge_base_id) \
+           --data-source-id $(terraform output -raw data_source_id) \
+           --region ${var.aws_region}
   EOT
 }

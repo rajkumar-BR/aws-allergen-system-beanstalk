@@ -85,6 +85,22 @@ data "aws_iam_policy_document" "app_permissions" {
     resources = ["*"]
   }
 
+  # Bedrock RAG retrieve - only granted when the optional Knowledge Base is
+  # enabled (var.create_knowledge_base). The app uses this to retrieve NZ PEAL
+  # regulatory context during compliance verification.
+  dynamic "statement" {
+    for_each = var.create_knowledge_base ? [1] : []
+    content {
+      sid    = "BedrockKbRetrieve"
+      effect = "Allow"
+      actions = [
+        "bedrock:Retrieve",
+        "bedrock-agent-runtime:Retrieve",
+      ]
+      resources = ["*"]
+    }
+  }
+
   # Amazon Translate - only used as a fallback if a Bedrock call itself fails
   statement {
     sid    = "TranslateFallback"
