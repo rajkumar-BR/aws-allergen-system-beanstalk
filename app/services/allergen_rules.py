@@ -21,9 +21,17 @@ from __future__ import annotations
 from typing import Dict, List, Set
 
 # Canonical mandatory declarable allergen categories under FSANZ Standard 1.2.3
+# as applied in New Zealand (NZ MPI "Allergen declarations, warnings and
+# advisory statements on food labels" page - the authoritative source):
+#   https://www.mpi.govt.nz/food-business/labelling-composition-food-drinks/allergen-declarations-warnings-and-advisory-statements-on-food-labels
+# That page's verbatim list: peanuts, almonds, Brazil nuts, cashews, hazelnuts,
+# macadamias, pecans, pine nuts, pistachios, walnuts, crustacean, MOLLUSCS,
+# fish, milk, egg, wheat, soy, sesame, lupin. Gluten (wheat, rye, barley, oats,
+# spelt, triticale) must also be listed; added sulphites only when >= 10 mg/kg.
 PEAL_CATEGORIES: List[str] = [
     "Gluten (Cereals)",
     "Crustacea",
+    "Molluscs",
     "Egg",
     "Fish",
     "Milk",
@@ -39,6 +47,7 @@ PEAL_CATEGORIES: List[str] = [
 DISPLAY_TAG: Dict[str, str] = {
     "Gluten (Cereals)": "Contains Wheat/Gluten",
     "Crustacea": "Contains Crustacea",
+    "Molluscs": "Contains Molluscs",
     "Egg": "Contains Egg",
     "Fish": "Contains Fish",
     "Milk": "Contains Milk",
@@ -67,12 +76,17 @@ INGREDIENT_KEYWORDS: Dict[str, str] = {
     "barley": "Gluten (Cereals)", "rye": "Gluten (Cereals)",
     "oats": "Gluten (Cereals)", "oat": "Gluten (Cereals)",
     "spelt": "Gluten (Cereals)", "malt": "Gluten (Cereals)",
+    "triticale": "Gluten (Cereals)",
     "breadcrumb": "Gluten (Cereals)", "batter": "Gluten (Cereals)",
     "soy sauce": "Gluten (Cereals)",  # most soy sauce also contains wheat
     "noodle": "Gluten (Cereals)", "couscous": "Gluten (Cereals)",
     # Crustacea
     "shrimp": "Crustacea", "prawn": "Crustacea", "crab": "Crustacea",
     "lobster": "Crustacea", "crayfish": "Crustacea", "langoustine": "Crustacea",
+    # Molluscs (NZ MPI mandatory list - e.g. clams in seafood chowder)
+    "clam": "Molluscs", "mussel": "Molluscs", "oyster": "Molluscs",
+    "scallop": "Molluscs", "squid": "Molluscs", "octopus": "Molluscs",
+    "calamari": "Molluscs", "snail": "Molluscs",
     # Egg
     "egg": "Egg", "mayonnaise": "Egg", "meringue": "Egg", "aioli": "Egg",
     # Fish
@@ -89,15 +103,18 @@ INGREDIENT_KEYWORDS: Dict[str, str] = {
     # Soy
     "soy": "Soybeans", "soya": "Soybeans", "tofu": "Soybeans",
     "edamame": "Soybeans", "miso": "Soybeans", "tempeh": "Soybeans",
-    # Tree nuts
+    # Tree nuts - individual names per NZ MPI (each nut must be declared separately)
     "almond": "Tree Nuts", "cashew": "Tree Nuts", "walnut": "Tree Nuts",
     "hazelnut": "Tree Nuts", "pistachio": "Tree Nuts", "pecan": "Tree Nuts",
-    "macadamia": "Tree Nuts", "praline": "Tree Nuts", "nutella": "Tree Nuts",
+    "macadamia": "Tree Nuts", "brazil nut": "Tree Nuts", "pine nut": "Tree Nuts",
+    "praline": "Tree Nuts", "nutella": "Tree Nuts",
     # Sesame
     "sesame": "Sesame", "tahini": "Sesame",
     # Lupin
     "lupin": "Lupin", "lupini": "Lupin",
-    # Sulphites (common in dried fruit, wine reductions, processed potato)
+    # Sulphites (NZ MPI threshold: only declarable when added sulphites
+    # >= 10 mg/kg - keyword hits here are conservative "likely" and should be
+    # flagged for review rather than confirmed if no concentration is known)
     "sulphite": "Added Sulphites", "sulfite": "Added Sulphites",
     "dried apricot": "Added Sulphites", "wine reduction": "Added Sulphites",
     "dried fruit": "Added Sulphites",

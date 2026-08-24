@@ -155,6 +155,14 @@ resource "aws_elastic_beanstalk_environment" "env" {
     value     = var.bedrock_model_id
   }
 
+  # Bedrock RAG knowledge base (empty = app runs rules-only with local
+  # keyword retrieval over the bundled kb_docs/).
+  setting {
+    namespace = "aws:elasticbeanstalk:application:environment"
+    name      = "KNOWLEDGE_BASE_ID"
+    value     = var.knowledge_base_id
+  }
+
   setting {
     namespace = "aws:elasticbeanstalk:application:environment"
     name      = "LOCAL_MODE"

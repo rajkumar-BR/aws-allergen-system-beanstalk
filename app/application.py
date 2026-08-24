@@ -22,7 +22,14 @@ import os
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from services import allergen_rules, bedrock_service, dynamo_service, s3_service, textract_service
+from services import (
+    allergen_rules,
+    allergen_service,
+    bedrock_service,
+    dynamo_service,
+    s3_service,
+    textract_service,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,13 +68,98 @@ def languages():
     return jsonify({"languages": bedrock_service.LANGUAGES})
 
 
+# ------------------------------------------------ allergen & compliance API
+def _dish_from_json(body: dict) -> tuple:
+    """Extract (dish_name, description) from a request body, accepting both
+    the new 'dish_name' field and the legacy 'name' field used elsewhere."""
+    name = (body.get("dish_name") or body.get("name") or "").strip()
+    description = (body.get("description") or "").strip()
+    return name, description
+
+
+def _new_request_id() -> str:
+    import uuid
+    return uuid.uuid4().hex[:12]
+
+
+@application.route("/api/allergens/extract", methods=["POST"])
+def allergens_extract():
+    """Task Phase 13 Endpoint 1 — Allergen Extraction.
+
+    POST {"dish_name": "...", "description": "..."}
+      -> {"dish_name": "...", "allergens": [{name, evidence, status, confidence}]}
+    """
+    import time
+    request_id = _new_request_id()
+    started = time.time()
+    body = request.get_json(silent=True) or {}
+    name, description = _dish_from_json(body)
+    if not name:
+        return jsonify({"error": "dish_name (or name) is required"}), 400
+    try:
+        result = allergen_service.extract(name, description)
+        logger.info(
+            "allergens/extract request_id=%s dish=%r allergens=%d latency_ms=%.0f",
+            request_id, name, len(result.allergens), (time.time() - started) * 1000,
+        )
+        return jsonify(result.to_json())
+    except Exception as exc:  # noqa: BLE001 - surface as a 500, never a fake result
+        logger.error("allergens/extract request_id=%s failed: %s", request_id, exc)
+        return jsonify({"error": "extraction failed", "detail": str(exc)}), 500
+
+
+@application.route("/api/compliance/verify", methods=["POST"])
+def compliance_verify():
+    """Task Phase 13 Endpoint 2 — Compliance Verification.
+
+    POST {"dish_name": "...", "description": "...", "allergens": [...]}
+      -> {"dish_name": "...", "compliance": {...}, "sources": [...]}
+
+    If no `allergens` list is supplied, extraction runs first.
+    """
+    import time
+    request_id = _new_request_id()
+    started = time.time()
+    body = request.get_json(silent=True) or {}
+    name, description = _dish_from_json(body)
+    if not name:
+        return jsonify({"error": "dish_name (or name) is required"}), 400
+    try:
+        provided = body.get("allergens")
+        result = allergen_service.verify(name, provided, description=description)
+        logger.info(
+            "compliance/verify request_id=%s dish=%r status=%s latency_ms=%.0f",
+            request_id, name, result.status, (time.time() - started) * 1000,
+        )
+        return jsonify(result.to_json())
+    except Exception as exc:  # noqa: BLE001
+        logger.error("compliance/verify request_id=%s failed: %s", request_id, exc)
+        return jsonify({"error": "verification failed", "detail": str(exc)}), 500
+
+
 # ---------------------------------------------------------------- core pipeline
 def _run_pipeline(menu_id: str, name: str, description: str, source: str) -> dict:
-    """Shared two-step chain: (1) allergen analyze+verify (2) translate."""
+    """Shared pipeline: (1) allergen analyze+verify (2) translate.
+
+    Compliance verification combines three signals: Bedrock LLM extraction,
+    the deterministic NZ PEAL rules engine, and (when available) Bedrock RAG
+    regulatory context via rag_service + compliance_service. The RAG layer
+    degrades to the bundled kb_docs/ search when AWS is unavailable.
+    """
     llm_result = bedrock_service.extract_allergens(name, description)
     rule_categories = allergen_rules.scan_text_for_allergens(f"{name} {description}")
-    reconciled = allergen_rules.reconcile_allergens(llm_result.get("categories", []), rule_categories)
-    confirmed = reconciled["confirmed"]
+
+    # Bedrock RAG + NZ PEAL compliance verification (Suresh's workstream).
+    dish_text = f"{name} {description}".strip()
+    retrieval = allergen_service.retrieve_context(dish_text)
+    compliance = allergen_service.verify_pipeline(
+        name,
+        description,
+        llm_result.get("categories", []),
+        rule_categories,
+        retrieval,
+    )
+    confirmed = compliance["confirmed"]
 
     translations = bedrock_service.translate_dish(name, description)
 
@@ -82,9 +174,12 @@ def _run_pipeline(menu_id: str, name: str, description: str, source: str) -> dic
             "display_tags": allergen_rules.to_display_tags(confirmed),
             "llm_reasoning": llm_result.get("reasoning", ""),
             "llm_source": llm_result.get("source", "bedrock"),
-            "disagreements": {
-                "llm_only": reconciled["llm_only"],
-                "rule_only": reconciled["rule_only"],
+            "disagreements": compliance["disagreements"],
+            "rag_citations": compliance["citations"],
+            "compliance": {
+                "engine": compliance["engine"],
+                "rag_categories": compliance["rag_categories"],
+                "reasoning": compliance.get("reasoning", ""),
             },
         },
         "diet_tags": allergen_rules.derive_diet_tags(confirmed, f"{name} {description}"),

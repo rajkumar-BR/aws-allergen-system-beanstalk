@@ -1,8 +1,17 @@
 # AI-Powered Allergen Compliance & Menu Translation - Beanstalk Edition
 
-This is a from-scratch rebuild of the project in `AI_Allergen_Compliance_Presentation.pdf`, hosted on Elastic Beanstalk (per your request) and removing the Bedrock knowledge-base / RAG component - compliance verification is done with a deterministic rules engine instead.
+This is a from-scratch rebuild of the project in `AI_Allergen_Compliance_Presentation.pdf`, hosted on Elastic Beanstalk (per your request). Compliance verification runs a deterministic NZ PEAL rules engine cross-checked against a Bedrock LLM read of the dish, plus an **optional** Bedrock RAG knowledge base of the NZ MPI / FSANZ regulatory docs that adds grounded citations when deployed (opt-in via `terraform/bedrock_kb.tf`). Without the KB the app degrades to a bundled local retrieval (`app/services/kb_docs/`), so everything still works with zero AWS dependencies.
 
 Everything is provisioned with Terraform and is fully tear-down-able with `terraform destroy` (see "Destroying everything" below).
+
+## Allergen source of truth
+
+The mandatory declarable allergen list is taken from the NZ MPI official page
+[Allergen declarations, warnings and advisory statements on food labels](https://www.mpi.govt.nz/food-business/labelling-composition-food-drinks/allergen-declarations-warnings-and-advisory-statements-on-food-labels):
+
+> peanuts, almonds, Brazil nuts, cashews, hazelnuts, macadamias, pecans, pine nuts, pistachios, walnuts, crustacean, **molluscs**, fish, milk, egg, wheat, soy, sesame, lupin.
+
+Plus: gluten (from wheat, rye, barley, oats, spelt, triticale) must also be listed, and added sulphites only when above 10 mg/kg. Each individual tree nut and cereal must be declared separately. These categories are implemented in `app/services/allergen_rules.py` (PEAL_CATEGORIES).
 
 ## What actually runs where
 
@@ -11,7 +20,7 @@ Everything is provisioned with Terraform and is fully tear-down-able with `terra
 | Application hosting | Elastic Beanstalk, provisioned by Terraform |
 | API Gateway + Cognito auth | Not required - Beanstalk's own load balancer serves the app directly. A Cognito User Pool is still provisioned (`terraform/cognito.tf`) to cover that checklist item for later use, but the demo UI does not enforce login yet |
 | Lambda two-step chain (Analyze -> Translate) | Runs as two plain function calls inside one Flask request (`app/application.py: _run_pipeline`) - no Lambda needed once the app has its own always-on compute (Beanstalk) |
-| Bedrock LLM anchored on NZ MPI PEAL knowledge base | Allergens are extracted by a Bedrock LLM call and cross-checked by a deterministic keyword rules engine (`app/services/allergen_rules.py`) built directly from the FSANZ Standard 1.2.3 mandatory declarable allergen list. The union of both is what's shown as "Contains X"; disagreements are flagged for human review |
+| Bedrock LLM anchored on NZ MPI PEAL knowledge base | Allergens are extracted by a Bedrock LLM call and cross-checked by a deterministic keyword rules engine (`app/services/allergen_rules.py`). Compliance is then verified with an optional Bedrock RAG layer: `app/services/rag_service.py` retrieves NZ PEAL regulatory context (from the Bedrock KB when `KNOWLEDGE_BASE_ID` is set, otherwise a bundled local retrieval over `app/services/kb_docs/`) and `app/services/compliance_service.py` produces the final "Contains X" set plus per-allergen regulatory citations. The union of all signals is shown to the diner; disagreements are flagged for human review |
 | AWS Textract OCR | `app/services/textract_service.py` - only invoked when a file is uploaded |
 | Multilingual translation (Spanish, German, Japanese, Mandarin) | `app/services/bedrock_service.py::translate_dish` - Bedrock LLM primary, Amazon Translate as an automatic fallback if Bedrock fails |
 | DynamoDB (menus & allergen metadata) | `terraform/dynamodb.tf` + `app/services/dynamo_service.py` |
@@ -25,8 +34,12 @@ app/                    Flask application (this whole folder is what gets
                          zipped and deployed to Elastic Beanstalk)
   application.py         Routes + the two-step pipeline
   services/
-    allergen_rules.py     FSANZ 1.2.3 rules engine (no KB/RAG)
+    allergen_rules.py     FSANZ 1.2.3 rules engine (deterministic scan)
     bedrock_service.py     Bedrock allergen extraction + translation
+    rag_service.py         Bedrock RAG retrieval (local keyword fallback)
+    compliance_service.py  Compliance verification (RAG + rules engine)
+    kb_docs/               Bundled NZ PEAL regulatory docs - local RAG corpus
+                           and the source uploaded to the Bedrock KB
     textract_service.py    OCR
     dynamo_service.py      DynamoDB CRUD (+ local JSON fallback)
     s3_service.py           Raw file storage (+ local fallback)
@@ -42,7 +55,9 @@ terraform/              All infrastructure, Beanstalk included
                            both force_destroy = true
   dynamodb.tf              Menu items table, deletion_protection disabled
   iam.tf                   EC2 instance role (Bedrock/Textract/S3/Dynamo/
-                           Translate) + EB service role
+                           Translate/Retrieve) + EB service role
+  bedrock_kb.tf            OPT-IN Bedrock Knowledge Base for the compliance
+                           RAG layer (disabled unless create_knowledge_base=true)
   cognito.tf               User pool (provisioned, not yet wired into UI)
   variables.tf / outputs.tf / providers.tf / main.tf
 
@@ -163,3 +178,105 @@ Every resource that can normally block a clean teardown has been set up to allow
 - DynamoDB table: `deletion_protection_enabled = false`
 
 Nothing here uses `prevent_destroy`, so a single `terraform destroy` tears down the whole stack in one pass.
+
+---
+
+## Allergen & Compliance service (deliverable)
+
+This section documents the **Allergen Extraction + Compliance Verification**
+workstream — the two-module deliverable focused on by this repo's owning team.
+It is kept independent of OCR, Translation and UI so the rest of the team can
+consume a clean API.
+
+### Which parts are LLM / RAG / Deterministic
+
+| Concern | Engine | Where |
+|---|---|---|
+| Allergen extraction (primary signal) | **LLM via Bedrock Function Calling / Tool Use** | `services/bedrock_service.py` — `extract_allergens_tool_use` |
+| Allergen extraction (cross-check / fallback) | **Deterministic** keyword rules | `services/allergen_extraction.py` |
+| Regulatory retrieval | **RAG** — Bedrock Knowledge Base (AWS) or bundled `kb_docs/` (local) | `services/rag_service.py` |
+| Compliance verdict & declarations | **Deterministic** rules engine | `services/compliance_engine.py` |
+| Public orchestration / reconciliation | Deterministic merge (Bedrock + rules) | `services/allergen_service.py` |
+
+The final regulatory decision is **never made by the LLM alone** — the
+deterministic rules engine reconciles and issues declaration / warning /
+advisory statements (task Principle 1).
+
+### Contracts (`services/allergen_contract.py`)
+
+- `ExtractRequest` → `{dish_name, description}`
+- `Allergen` → `{name, evidence, status, confidence, reason?}`
+  - `status` ∈ `CONFIRMED | POSSIBLE | UNKNOWN`. `POSSIBLE`/`UNKNOWN` are never
+    silently reported as compliant.
+- `ExtractionResult` → `{dish_name, allergens[], engine, llm_reasoning?}`
+- `ComplianceResult` → `{dish_name, allergens[], compliance, sources}`
+  - `compliance.status` ∈ `COMPLIANT | ACTION_REQUIRED | UNVERIFIED`
+  - `compliance` distinguishes `allergen_declarations`,
+    `warning_statements`, `advisory_statements` (never a single `warning`).
+
+### API
+
+```
+POST /api/allergens/extract
+  { "dish_name": "...", "description": "..." }
+  -> { "dish_name": "...", "allergens": [
+        {"name": "Cashew", "evidence": "cashew nuts", "status": "CONFIRMED", "confidence": 0.99}, ...] }
+
+POST /api/compliance/verify
+  { "dish_name": "...", "description": "...", "allergens": [ ...optional in-advance extraction... ] }
+  -> { "dish_name": "...", "compliance": {
+        "status": "COMPLIANT",
+        "allergen_declarations": ["Contains Cashews", "Contains Milk"],
+        "warning_statements": [],
+        "advisory_statements": [] }, "sources": [ ... ] }
+```
+
+Both accept either `dish_name` or the legacy `name` field. Example output for a
+sample call is shown in `app/tests/test_allergen_api.py`.
+
+### Function Calling / Tool Use
+
+`services/bedrock_service.py::extract_allergens_tool_use` drives extraction
+through a real Claude tool call. The JSON Schema in `_EXTRACT_ALLERGEN_TOOL`
+forces a structured `toolUse.input` (per-allergen name/evidence/status/
+confidence) instead of free-form prose. If Bedrock is unavailable (broken
+credentials, no model access, offline) it degrades to the deterministic engine,
+so the pipeline never hard-fails.
+
+### Running & testing
+
+No AWS account needed to exercise the deterministic path:
+
+```bash
+# deterministic + orchestration unit tests (stdlib unittest, no boto3 required)
+python -m unittest discover -s app/tests -p "test_*.py" -v
+
+# all tests including Function-Calling & API tests (needs boto3 -> use the venv)
+cd app && ../.venv/Scripts/python -m unittest discover -s tests -p "test_*.py" -v
+
+# smoke test the API locally (deterministic engine, no cloud)
+./run_local.sh          # then: curl -XPOST localhost:8000/api/allergens/extract -d '{"dish_name":"...","description":"..."}'
+```
+
+The real Bedrock path requires valid AWS credentials + Bedrock model access in
+the configured region (see prerequisites above). Set `BEDROCK_MODEL_ID` if you
+need a different Claude model.
+
+### Regulatory sources
+
+The canonical allergen taxonomy follows the NZ MPI page
+[Allergen declarations, warnings and advisory statements on food labels](
+https://www.mpi.govt.nz/food-business/labelling-composition-food-drinks/allergen-declarations-warnings-and-advisory-statements-on-food-labels)
+and FSANZ Standard 1.2.3. Bundled reference copies used for local retrieval are
+in `app/services/kb_docs/nz_peal_allergens.md` (the same docs are uploaded to the
+optional Bedrock Knowledge Base).
+
+### Known limitations
+
+- The deterministic keyword engine is a starting point and must be reviewed by a
+  food-safety qualified person before commercial use; it is not exhaustive.
+- Tree nuts are declared individually (per NZ MPI); the engine intentionally does
+  not collapse them into a generic "Nuts".
+- Uncertain/sulphite cases are surfaced as `POSSIBLE` / `ACTION_REQUIRED`,
+  never auto-confirmed, pending human review.
+
