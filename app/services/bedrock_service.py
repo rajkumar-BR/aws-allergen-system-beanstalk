@@ -27,7 +27,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from .allergen_rules import PEAL_CATEGORIES
-from .allergen_contract import CONFIRMED, POSSIBLE, UNKNOWN
+from .allergen_service import CONFIRMED, POSSIBLE, UNKNOWN
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +222,7 @@ def extract_allergens_tool_use(dish_name: str, description: str) -> Dict:
 
 
 def _offline_extract_allergens_tool_use(dish_name: str, description: str) -> Dict:
-    from .allergen_extraction import extract_allergens_deterministic
+    from .allergen_service import extract_allergens_deterministic
     res = extract_allergens_deterministic(dish_name, description)
     return {
         "dish_name": res.dish_name,

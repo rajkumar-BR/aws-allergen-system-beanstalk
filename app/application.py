@@ -26,9 +26,7 @@ from services import (
     allergen_rules,
     allergen_service,
     bedrock_service,
-    compliance_service,
     dynamo_service,
-    rag_service,
     s3_service,
     textract_service,
 )
@@ -153,8 +151,8 @@ def _run_pipeline(menu_id: str, name: str, description: str, source: str) -> dic
 
     # Bedrock RAG + NZ PEAL compliance verification (Suresh's workstream).
     dish_text = f"{name} {description}".strip()
-    retrieval = rag_service.retrieve_context(dish_text)
-    compliance = compliance_service.verify_compliance(
+    retrieval = allergen_service.retrieve_context(dish_text)
+    compliance = allergen_service.verify_pipeline(
         name,
         description,
         llm_result.get("categories", []),
