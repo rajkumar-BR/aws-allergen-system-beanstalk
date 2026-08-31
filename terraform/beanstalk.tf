@@ -168,4 +168,14 @@ resource "aws_elastic_beanstalk_environment" "env" {
     name      = "LOCAL_MODE"
     value     = "false"
   }
+
+  # ---- ALB idle timeout ----
+  # Bedrock calls in the bulk /seed endpoint (16 dishes x LLM call) can run
+  # longer than the ALB's default 60s idle timeout. Raise it to 300s so bulk
+  # operations don't return a 504 before the pipeline finishes.
+  setting {
+    namespace = "aws:elbv2:loadbalancer"
+    name      = "IdleTimeout"
+    value     = "300"
+  }
 }

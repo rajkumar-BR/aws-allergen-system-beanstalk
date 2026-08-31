@@ -10,21 +10,22 @@
    aws configure
    aws sts get-caller-identity   # sanity check
    ```
-3. **Bedrock model access enabled** for the model in
-   `terraform/variables.tf` (`bedrock_model_id`, default is
-   `anthropic.claude-3-haiku-20240307-v1:0`) in your chosen region:
-   - AWS Console -> Amazon Bedrock -> **Model access** (left nav) ->
-     Request/enable access to the Anthropic Claude 3 Haiku model.
-   - This is an account-level, console-only step - Terraform cannot
-     grant Bedrock model access on your behalf.
-   - If you skip this, the app still runs - allergen extraction falls
-     back to the offline keyword scan and translation falls back to
-     Amazon Translate, both automatically, but you won't get the
-     LLM-quality output described in the PDF.
-4. Pick a region where **both Bedrock and Textract** are available.
-   The default, `ap-southeast-2` (Sydney), has both and is the closest
-   Bedrock region to NZ. `us-east-1` and `us-west-2` are the other safe
-   choices if Sydney model access is limited for your account.
+3. **Bedrock model access** for the model in `terraform/variables.tf`
+   (`bedrock_model_id`, default `global.anthropic.claude-haiku-4-5-20251001-v1:0`):
+   - Bedrock foundation models are auto-enabled in commercial regions on
+     first use. Verify with:
+     ```bash
+     aws bedrock list-foundation-models --region us-east-1 \
+       --query "modelSummaries[?contains(providerName,'Anthropic')].[modelId,modelLifecycle.status]" \
+       --output table
+     ```
+   - If your AWS account is brand new, Bedrock/Textract/Translate may
+     return `SubscriptionRequiredException` until the account is fully
+     activated (payment method + identity verification). The app still
+     runs via the offline rules-engine fallback either way.
+4. Default region is `us-east-1` (broadest Bedrock model availability).
+   Set `aws_profile` in `terraform.tfvars` to match your AWS CLI profile
+   (`"personal"` or `"default"`).
 
 ## 1. Deploy
 
@@ -71,7 +72,7 @@ terraform output app_url
 
 Open that URL in a browser. Then:
 
-1. Click **"Load Sample Menu"** - runs all 8 sample dishes through
+1. Click **"Load Sample Menu"** - runs all 16 sample dishes through
    OCR-skip -> Bedrock allergen extraction -> FSANZ rules-engine
    verification -> 4-language translation -> DynamoDB save. This is
    the fastest way to confirm the whole pipeline actually works end to

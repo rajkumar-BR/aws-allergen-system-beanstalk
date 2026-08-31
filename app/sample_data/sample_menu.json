@@ -33,6 +33,38 @@
     {
       "name": "Vegan Buddha Bowl",
       "description": "Quinoa, roasted vegetables, chickpeas, avocado and a tahini dressing. No animal products used."
+    },
+    {
+      "name": "Tempura Prawn Bowl",
+      "description": "Lightly battered prawns and tempura vegetables with a soy dipping sauce, served over steamed rice."
+    },
+    {
+      "name": "Lemon Meringue Tart",
+      "description": "Buttery shortcrust pastry filled with tangy lemon curd and topped with toasted egg white meringue."
+    },
+    {
+      "name": "Dried Apricot and Walnut Cake",
+      "description": "Moist sponge cake with dried apricots and walnuts, layered with a mascarpone cream and dusted with icing sugar."
+    },
+    {
+      "name": "Truffle Mushroom Pasta",
+      "description": "Fresh egg pasta tossed with sauteed mushrooms, truffle oil, cream and parmesan."
+    },
+    {
+      "name": "Grilled Snapper with Herb Salsa",
+      "description": "Line-caught snapper fillet grilled and finished with a fresh herb and caper salsa, served with a garden salad."
+    },
+    {
+      "name": "Halloumi and Fig Salad",
+      "description": "Grilled halloumi cheese with fresh figs, rocket, toasted hazelnuts and a balsamic glaze."
+    },
+    {
+      "name": "Smoked Salmon Eggs Benedict",
+      "description": "Poached eggs and smoked salmon on a toasted English muffin, topped with a creamy hollandaise sauce."
+    },
+    {
+      "name": "Chocolate Hazelnut Brownie",
+      "description": "Rich chocolate brownie with roasted hazelnuts, served warm with vanilla bean gelato and a chocolate sauce."
     }
   ]
 }

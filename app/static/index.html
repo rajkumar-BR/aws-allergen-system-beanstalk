@@ -46,7 +46,7 @@
       <div class="card">
         <div class="card-eyebrow">Step 1</div>
         <h3>Load sample menu</h3>
-        <p class="muted">Runs the full OCR-skip → allergen analyze → compliance verify → translate pipeline on the 8 sample dishes.</p>
+        <p class="muted">Runs the full OCR-skip → allergen analyze → compliance verify → translate pipeline on the 16 sample dishes.</p>
         <button id="seedBtn" class="btn primary">Load Sample Menu</button>
         <div id="seedStatus" class="status-line"></div>
       </div>
@@ -83,7 +83,7 @@
       <div class="preview-header">
         <div>
           <h2>Menu Highlights</h2>
-          <p class="muted preview-sub">Click any dish to review or override its AI-detected allergens.</p>
+          <p class="muted preview-sub">Click any dish to review or override its AI-detected allergens. <span id="dishCount" class="dish-count"></span></p>
         </div>
         <div class="filters" id="filters">
           <label><input type="checkbox" value="Gluten-Free" /> Gluten-Free</label>

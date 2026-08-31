@@ -54,7 +54,7 @@ output "next_steps" {
        aws elasticbeanstalk describe-environments --environment-names ${aws_elastic_beanstalk_environment.env.name} --query "Environments[0].Status"
     2. Open app_url in a browser.
     3. Click "Load Sample Menu" to run the full OCR-skip -> allergen
-       analyze -> compliance verify -> translate pipeline on 8 sample dishes.
+       analyze -> compliance verify -> translate pipeline on 16 sample dishes.
     4. Make sure Bedrock model access is granted for
        ${var.bedrock_model_id} in ${var.aws_region} (Bedrock console ->
        Model access) - without it, allergen extraction/translation will

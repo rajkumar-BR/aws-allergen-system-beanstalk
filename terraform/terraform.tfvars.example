@@ -2,6 +2,7 @@
 # terraform init && terraform apply
 
 aws_region       = "us-east-1"
+aws_profile      = "personal"
 project_name     = "allergen-demo"
 environment      = "dev"
 instance_type    = "t3.small"
