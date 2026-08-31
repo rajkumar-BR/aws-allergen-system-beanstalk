@@ -192,7 +192,14 @@ def upload_menu(menu_id):
 def seed_sample_menu(menu_id):
     """Loads sample_data/sample_menu.json and runs every dish through the
     full pipeline - used to demo the system without needing a real
-    upload, and by the local smoke-test script."""
+    upload, and by the local smoke-test script.
+    Clears existing items for this menu_id first to avoid duplicates
+    if the button is clicked more than once."""
+    # Clear existing items to prevent duplicates
+    existing = dynamo_service.list_items(menu_id)
+    for item in existing:
+        dynamo_service.delete_item(menu_id, item["item_id"])
+
     with open(SAMPLE_DATA_PATH, "r") as f:
         sample = json.load(f)
 

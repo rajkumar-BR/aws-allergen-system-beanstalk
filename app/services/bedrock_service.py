@@ -30,9 +30,9 @@ from .allergen_rules import PEAL_CATEGORIES
 
 logger = logging.getLogger(__name__)
 
-AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-2")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 BEDROCK_MODEL_ID = os.environ.get(
-    "BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0"
+    "BEDROCK_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
 LOCAL_MODE = os.environ.get("LOCAL_MODE", "false").lower() == "true"
 

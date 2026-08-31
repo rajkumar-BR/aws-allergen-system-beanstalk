@@ -27,7 +27,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
 
-AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-2")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "allergen-menu-items")
 LOCAL_MODE = os.environ.get("LOCAL_MODE", "false").lower() == "true"
 LOCAL_DB_PATH = os.environ.get("LOCAL_DB_PATH", "/tmp/allergen_local_db.json")

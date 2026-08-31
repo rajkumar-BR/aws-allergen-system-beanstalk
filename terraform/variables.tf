@@ -1,7 +1,13 @@
 variable "aws_region" {
   description = "AWS region to deploy into. Must be a region where Bedrock and Textract are both available."
   type        = string
-  default     = "ap-southeast-2" # Sydney - closest Bedrock-enabled region to NZ at time of writing
+  default     = "us-east-1" # Broadest Bedrock model availability
+}
+
+variable "aws_profile" {
+  description = "AWS CLI named profile to use for credentials. Set to \"default\" if you configured credentials without a named profile."
+  type        = string
+  default     = "personal"
 }
 
 variable "project_name" {
@@ -35,7 +41,7 @@ variable "max_instances" {
 variable "bedrock_model_id" {
   description = "Bedrock model ID used for allergen extraction + translation."
   type        = string
-  default     = "anthropic.claude-3-haiku-20240307-v1:0"
+  default     = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
 
 variable "python_version_regex" {
