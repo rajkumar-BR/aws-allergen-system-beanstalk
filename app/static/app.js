@@ -161,12 +161,22 @@ function openModal(itemId) {
 
   const disagree = item.allergens?.disagreements || { llm_only: [], rule_only: [] };
   const disagreeHtml = (disagree.llm_only?.length || disagree.rule_only?.length)
-    ? `<p class="muted">⚠ AI-only flagged: ${disagree.llm_only.join(", ") || "none"} · Rules-only flagged: ${disagree.rule_only.join(", ") || "none"}</p>`
+    ? `<p class="muted">⚠ AI-only flagged: ${disagree.llm_only.join(", ") || "none"} · Rules-only flagged: ${disagree.rule_only.join(", ") || "none"}${disagree.rag_only?.length ? ` · RAG-only flagged: ${disagree.rag_only.join(", ")}` : ""}</p>`
     : `<p class="muted">AI extraction and rules-engine scan agreed on all allergens.</p>`;
+
+  const engine = item.allergens?.compliance?.engine || "";
+  const cites = item.allergens?.rag_citations || [];
+  const complianceHtml = cites.length
+    ? `<div class="rag-sources">
+        <strong>Compliance engine: <span class="engine-badge">${escapeHtml(engine)}</span></strong>
+        <ul>${cites.map(c => `<li><em>${escapeHtml(c.category)}</em> — ${escapeHtml(c.section || c.source)}</li>`).join("")}</ul>
+      </div>`
+    : "";
 
   document.getElementById("modalBody").innerHTML = `
     <p class="muted">${escapeHtml(item.description)}</p>
     ${disagreeHtml}
+    ${complianceHtml}
     <label>Confirmed allergens (human-in-the-loop override)</label>
     <div class="allergen-checks">${checks}</div>
     <div class="modal-actions">

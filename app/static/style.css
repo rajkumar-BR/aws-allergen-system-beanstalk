@@ -321,3 +321,28 @@ input[type="text"]:focus, textarea:focus {
 .modal .allergen-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12.5px; }
 .modal .allergen-checks label { font-weight: 400; margin: 0; display: flex; align-items: center; gap: 6px; }
 .modal-actions { margin-top: 16px; display: flex; gap: 8px; }
+
+/* Compliance-verification sources shown in the review modal */
+.rag-sources {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  background: var(--sage-bg);
+  border-left: 3px solid var(--sage);
+  border-radius: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.rag-sources ul { margin: 6px 0 0; padding-left: 16px; }
+.rag-sources li { margin: 2px 0; color: var(--ink); }
+.rag-sources em { font-style: normal; font-weight: 600; }
+.engine-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--sage);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}

@@ -1,285 +1,282 @@
-# AI-Powered Allergen Compliance & Menu Translation — Beanstalk Edition
+# AI-Powered Allergen Compliance & Menu Translation - Beanstalk Edition
 
-A restaurant menu system that reads an uploaded menu, detects mandatory allergens against the NZ/AU **FSANZ Standard 1.2.3** (PEAL) list, translates each dish into 4 languages, and lets a kitchen manager review and override the results.
+This is a from-scratch rebuild of the project in `AI_Allergen_Compliance_Presentation.pdf`, hosted on Elastic Beanstalk (per your request). Compliance verification runs a deterministic NZ PEAL rules engine cross-checked against a Bedrock LLM read of the dish, plus an **optional** Bedrock RAG knowledge base of the NZ MPI / FSANZ regulatory docs that adds grounded citations when deployed (opt-in via `terraform/bedrock_kb.tf`). Without the KB the app degrades to a bundled local retrieval (`app/services/kb_docs/`), so everything still works with zero AWS dependencies.
 
-Hosted on **AWS Elastic Beanstalk** (a single always-on Flask app), provisioned entirely with **Terraform**, and fully tear-down-able with one `terraform destroy`.
+Everything is provisioned with Terraform and is fully tear-down-able with `terraform destroy` (see "Destroying everything" below).
 
-**Live demo screenshot:** dual-panel UI — upload/management on the left, colourful live menu preview on the right.
+## Allergen source of truth
 
----
+The mandatory declarable allergen list is taken from the NZ MPI official page
+[Allergen declarations, warnings and advisory statements on food labels](https://www.mpi.govt.nz/food-business/labelling-composition-food-drinks/allergen-declarations-warnings-and-advisory-statements-on-food-labels):
 
-## Table of Contents
+> peanuts, almonds, Brazil nuts, cashews, hazelnuts, macadamias, pecans, pine nuts, pistachios, walnuts, crustacean, **molluscs**, fish, milk, egg, wheat, soy, sesame, lupin.
 
-1. [What it does](#what-it-does)
-2. [Architecture](#architecture)
-3. [Repo layout](#repo-layout)
-4. [Prerequisites](#prerequisites)
-5. [Run locally first (no AWS needed)](#run-locally-first-no-aws-needed)
-6. [Deploy to AWS — step by step](#deploy-to-aws--step-by-step)
-7. [Using the app](#using-the-app)
-8. [Updating after a code change](#updating-after-a-code-change)
-9. [Destroying everything](#destroying-everything)
-10. [Troubleshooting](#troubleshooting)
+Plus: gluten (from wheat, rye, barley, oats, spelt, triticale) must also be listed, and added sulphites only when above 10 mg/kg. Each individual tree nut and cereal must be declared separately. These categories are implemented in `app/services/allergen_rules.py` (PEAL_CATEGORIES).
 
----
-
-## What it does
-
-A cafe manager uploads a weekly menu (PDF / JPG / PNG) or adds a dish manually. The app then:
-
-1. **OCR** — extracts text from the uploaded file with **AWS Textract** (only runs on file upload)
-2. **Allergen analysis** — a **Bedrock LLM** reads each dish description and extracts allergens
-3. **Compliance verification** — a **deterministic FSANZ 1.2.3 rules engine** cross-checks the LLM result. The union of both is shown as "Contains X"; any disagreement is flagged for human review. (No knowledge base / RAG — the rule list is built directly from the standard.)
-4. **Translation** — **Bedrock** translates each dish name + description into **Spanish, German, Japanese, Mandarin**, with **Amazon Translate** as an automatic fallback
-5. **Storage** — dishes + allergens + translations saved to **DynamoDB**; raw files saved to **S3**
-6. **Human-in-the-loop** — click any dish card to override its confirmed allergens
-
-If Bedrock/Textract/Translate aren't available (new account, no model access, etc.) the app **degrades gracefully** to offline stubs and the deterministic rules engine — it never crashes.
-
----
-
-## Architecture
-
-```
-Browser (dual-panel UI)
-        │  HTTP
-        ▼
-Elastic Beanstalk  ── Application Load Balancer ── EC2 (gunicorn + Flask)
-        │
-        │  the two-step pipeline runs as two function calls in ONE request
-        │  (no Lambda, no API Gateway):
-        │
-        ├── Step 1  Textract OCR ──► Bedrock allergen extraction ──► FSANZ rules engine
-        └── Step 2  Bedrock translate (ES/DE/JA/ZH)  ──► Amazon Translate fallback
-        │
-        ▼
-S3 (raw menu files)   +   DynamoDB (menus, allergens, translations)
-Cognito user pool (provisioned; not enforced in the demo UI)
-```
+## What actually runs where
 
 | PDF architecture item | This build |
 |---|---|
 | Application hosting | Elastic Beanstalk, provisioned by Terraform |
-| API Gateway + Cognito auth | Beanstalk's ALB serves the app directly. Cognito pool is provisioned (`terraform/cognito.tf`) but not enforced in the demo UI |
-| Lambda two-step chain | Two function calls inside one Flask request (`app/application.py::_run_pipeline`) |
-| Bedrock + PEAL knowledge base | Bedrock LLM extraction + deterministic FSANZ 1.2.3 rules engine (`app/services/allergen_rules.py`) — **no RAG/KB** |
-| AWS Textract OCR | `app/services/textract_service.py` — only on file upload |
-| Translation (ES/DE/JA/ZH) | `app/services/bedrock_service.py::translate_dish` — Bedrock primary, Amazon Translate fallback |
-| DynamoDB | `terraform/dynamodb.tf` + `app/services/dynamo_service.py` |
-| S3 | `terraform/s3.tf` + `app/services/s3_service.py` |
-| Human-in-the-loop | Click a dish card → override checkboxes → `PATCH /api/menus/<id>/items/<id>` |
-
----
+| API Gateway + Cognito auth | Not required - Beanstalk's own load balancer serves the app directly. A Cognito User Pool is still provisioned (`terraform/cognito.tf`) to cover that checklist item for later use, but the demo UI does not enforce login yet |
+| Lambda two-step chain (Analyze -> Translate) | Runs as two plain function calls inside one Flask request (`app/application.py: _run_pipeline`) - no Lambda needed once the app has its own always-on compute (Beanstalk) |
+| Bedrock LLM anchored on NZ MPI PEAL knowledge base | Allergens are extracted by a Bedrock LLM call and cross-checked by a deterministic keyword rules engine (`app/services/allergen_rules.py`). Compliance is then verified with an optional Bedrock RAG layer: `app/services/rag_service.py` retrieves NZ PEAL regulatory context (from the Bedrock KB when `KNOWLEDGE_BASE_ID` is set, otherwise a bundled local retrieval over `app/services/kb_docs/`) and `app/services/compliance_service.py` produces the final "Contains X" set plus per-allergen regulatory citations. The union of all signals is shown to the diner; disagreements are flagged for human review |
+| AWS Textract OCR | `app/services/textract_service.py` - only invoked when a file is uploaded |
+| Multilingual translation (Spanish, German, Japanese, Mandarin) | `app/services/bedrock_service.py::translate_dish` - Bedrock LLM primary, Amazon Translate as an automatic fallback if Bedrock fails |
+| DynamoDB (menus & allergen metadata) | `terraform/dynamodb.tf` + `app/services/dynamo_service.py` |
+| S3 (raw menu files) | `terraform/s3.tf` + `app/services/s3_service.py` |
+| Human-in-the-loop review | Click any dish card in the UI -> checkbox override of confirmed allergens -> `PATCH /api/menus/<id>/items/<id>` |
 
 ## Repo layout
 
 ```
-app/                          Flask application (this whole folder is deployed to Beanstalk)
-  application.py               Routes + the two-step pipeline (_run_pipeline)
-  Procfile                     gunicorn entry point Beanstalk uses
-  requirements.txt
-  .platform/                   nginx proxy timeout override (300s)
+app/                    Flask application (this whole folder is what gets
+                         zipped and deployed to Elastic Beanstalk)
+  application.py         Routes + the two-step pipeline
   services/
-    allergen_rules.py           FSANZ 1.2.3 rules engine (no KB/RAG)
-    bedrock_service.py          Bedrock allergen extraction + translation (+ fallbacks)
-    textract_service.py         OCR
-    dynamo_service.py           DynamoDB CRUD (+ local JSON fallback)
-    s3_service.py               Raw file storage (+ local fallback)
-  static/                      UI — index.html / style.css / app.js (colourful dish cards)
+    allergen_rules.py     FSANZ 1.2.3 rules engine (deterministic scan)
+    bedrock_service.py     Bedrock allergen extraction + translation
+    rag_service.py         Bedrock RAG retrieval (local keyword fallback)
+    compliance_service.py  Compliance verification (RAG + rules engine)
+    kb_docs/               Bundled NZ PEAL regulatory docs - local RAG corpus
+                           and the source uploaded to the Bedrock KB
+    textract_service.py    OCR
+    dynamo_service.py      DynamoDB CRUD (+ local JSON fallback)
+    s3_service.py           Raw file storage (+ local fallback)
+  static/                 UI (index.html / style.css / app.js)
   sample_data/
-    sample_menu.json            16 sample dishes used by "Load Sample Menu"
+    sample_menu.json        8 sample dishes used by "Load Sample Menu"
+  requirements.txt
+  Procfile                gunicorn entry point Beanstalk uses
 
-terraform/                    All infrastructure, Beanstalk included
-  providers.tf                 AWS provider + region + profile
-  variables.tf                 region, profile, instance size, model id, etc.
-  main.tf                      locals + caller identity
-  network.tf                   default VPC/subnets (filtered to AZs that offer the instance type)
-  beanstalk.tf                 zips app/, uploads it, creates EB app/env + ALB idle timeout
-  s3.tf                        2 buckets (uploads + EB app versions), force_destroy = true
-  dynamodb.tf                  menu items table, deletion protection off
-  iam.tf                       EC2 instance role (Bedrock/Textract/S3/Dynamo/Translate) + EB service role
-  cognito.tf                   user pool (provisioned, not enforced)
-  outputs.tf                   prints app_url and next steps
-  terraform.tfvars.example     copy to terraform.tfvars
+terraform/              All infrastructure, Beanstalk included
+  beanstalk.tf            Zips app/, uploads it, creates the EB app/env
+  s3.tf                    2 buckets (uploads + EB app version bundles),
+                           both force_destroy = true
+  dynamodb.tf              Menu items table, deletion_protection disabled
+  iam.tf                   EC2 instance role (Bedrock/Textract/S3/Dynamo/
+                           Translate/Retrieve) + EB service role
+  bedrock_kb.tf            OPT-IN Bedrock Knowledge Base for the compliance
+                           RAG layer (disabled unless create_knowledge_base=true)
+  cognito.tf               User pool (provisioned, not yet wired into UI)
+  variables.tf / outputs.tf / providers.tf / main.tf
 
-run_local.sh                  Run the Flask app locally with offline stubs (no AWS needed)
-DEPLOY_GUIDE.md               Condensed deploy walkthrough (this README is the full version)
+run_local.sh            Runs the Flask app locally with LOCAL_MODE=true -
+                         no AWS account needed, everything AWS-shaped is
+                         stubbed so you can click through the UI first.
 ```
 
----
+## AWS credentials setup (required before `terraform apply`)
 
-## Prerequisites
+Terraform needs valid AWS credentials on the machine you're running it from, and that identity needs enough IAM permission to create the resources listed above (Elastic Beanstalk, S3, DynamoDB, IAM roles, Cognito). Do this once, before the "Quick start" steps below.
 
-| Tool | Install | Check |
-|---|---|---|
-| **Terraform** ≥ 1.5 | `brew install terraform` or [terraform install](https://developer.hashicorp.com/terraform/install) | `terraform version` |
-| **AWS CLI** v2 | `brew install awscli` or [aws cli](https://aws.amazon.com/cli/) | `aws --version` |
-| **Python** ≥ 3.11 | `brew install python` | `python3 --version` |
+### 1. Install the AWS CLI
 
-### AWS credentials
+```
+# macOS
+brew install awscli
 
-You need AWS credentials with permission to create IAM roles, S3, DynamoDB, Elastic Beanstalk, and Cognito.
+# Linux
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip && sudo ./aws/install
 
-```bash
-aws configure --profile personal
-# AWS Access Key ID:     <your key>
-# AWS Secret Access Key: <your secret>
-# Default region name:   us-east-1
-# Default output format: json
-
-aws sts get-caller-identity --profile personal   # verify — should print your account ID
+# Windows: download the MSI installer from
+# https://awscli.amazonaws.com/AWSCLIV2.msi
 ```
 
-> This project's `terraform.tfvars.example` uses `aws_profile = "personal"`. If you configured credentials without a named profile, set `aws_profile = "default"` in your `terraform.tfvars`.
+Verify with `aws --version`.
 
-### Bedrock model access (for full AI output)
+### 2. Get an access key
 
-Bedrock foundation models are auto-enabled in commercial regions on first use. Verify Claude Haiku 4.5 is available:
+You need an IAM user (or IAM role) with programmatic access - not your root account.
 
-```bash
-aws bedrock list-foundation-models \
-  --region us-east-1 \
-  --query "modelSummaries[?contains(providerName,'Anthropic')].[modelId,modelLifecycle.status]" \
-  --output table
+1. Sign in to the [IAM console](https://console.aws.amazon.com/iam/).
+2. Create a new IAM user (or use an existing one) dedicated to this project, e.g. `allergen-compliance-terraform`.
+3. Attach permissions. For a quick start you can attach the AWS-managed policies below; for production, replace these with a scoped-down custom policy:
+   - `AdministratorAccess` (simplest, broadest - fine for a personal/demo AWS account)
+   - or, more scoped: `AmazonS3FullAccess`, `AmazonDynamoDBFullAccess`, `AWSElasticBeanstalkFullAccess`, `IAMFullAccess`, `AmazonCognitoPowerUser`, `AmazonBedrockFullAccess`, `AmazonTextractFullAccess`, `TranslateFullAccess`
+4. Under **Security credentials**, create an **access key** (choose "Command Line Interface (CLI)" as the use case). Save the Access Key ID and Secret Access Key somewhere safe - the secret is only shown once.
+
+### 3. Configure the credentials locally
+
+```
+aws configure
 ```
 
-- If your AWS account is brand new, **Bedrock, Textract, and Amazon Translate may return `SubscriptionRequiredException`** until the account is fully activated (valid payment method + identity verification). The app still runs — it falls back to the offline rules engine for allergens. Once the account is verified, the AI features light up automatically with no code change.
+You'll be prompted for:
 
----
-
-## Run locally first (no AWS needed)
-
-Confirm the UI and pipeline work before spending anything on AWS:
-
-```bash
-./run_local.sh
+```
+AWS Access Key ID [None]: <paste your access key ID>
+AWS Secret Access Key [None]: <paste your secret access key>
+Default region name [None]: us-east-1   # or whatever region you'll deploy to
+Default output format [None]: json
 ```
 
-Open **http://localhost:8000**. This runs the identical Flask app with Bedrock/Textract/S3/DynamoDB replaced by clearly-labelled offline stubs (the real FSANZ rules engine still runs). Click **Load Sample Menu** to see 16 dishes flow through the pipeline.
+This writes credentials to `~/.aws/credentials` and config to `~/.aws/config`. Terraform's AWS provider (`terraform/providers.tf`) picks these up automatically - no extra Terraform config needed.
 
----
+Alternatively, instead of `aws configure`, you can export environment variables in the shell you'll run `terraform apply` from:
 
-## Deploy to AWS — step by step
+```
+export AWS_ACCESS_KEY_ID="your-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+export AWS_DEFAULT_REGION="us-east-1"
+```
 
-### Step 1 — Configure your variables
+If you use AWS SSO or an assumed role instead of a long-lived access key, `aws sso login --profile <profile-name>` followed by `export AWS_PROFILE=<profile-name>` works too - Terraform respects `AWS_PROFILE`.
 
-```bash
+### 4. Verify credentials work
+
+```
+aws sts get-caller-identity
+```
+
+You should see your account ID, user ARN, and user ID printed back. If this fails, `terraform apply` will fail at the same step, so fix it here first.
+
+### 5. Request Bedrock model access (one-time, per account/region)
+
+Bedrock model access must be explicitly enabled per AWS account and region before it can be invoked:
+
+1. Open the [Bedrock console](https://console.aws.amazon.com/bedrock/) in the region you plan to deploy to.
+2. Go to **Model access** in the left sidebar.
+3. Request access to the Claude model(s) used by `app/services/bedrock_service.py`.
+4. Wait for status to show "Access granted" (usually near-instant for Anthropic models on Bedrock).
+
+With that done, you're ready for the "Quick start" steps below.
+
+## Quick start (real AWS deployment)
+
+See `DEPLOY_GUIDE.md` for the full walkthrough. Short version:
+
+```
 cd terraform
-cp terraform.tfvars.example terraform.tfvars
-```
-
-Open `terraform.tfvars` and set your values:
-
-```hcl
-aws_region       = "us-east-1"
-aws_profile      = "personal"    # or "default"
-project_name     = "allergen-demo"
-environment      = "dev"
-instance_type    = "t3.small"
-min_instances    = 1
-max_instances    = 2
-bedrock_model_id = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-```
-
-> `terraform.tfvars` is git-ignored — it stays on your machine and is never pushed.
-
-### Step 2 — Initialise and review
-
-```bash
+cp terraform.tfvars.example terraform.tfvars   # edit region etc. if needed
 terraform init
-terraform plan     # review the ~20 resources that will be created
-```
-
-### Step 3 — Deploy
-
-```bash
-terraform apply    # type "yes" to confirm
-```
-
-What happens:
-1. Zips `../app` into `terraform/build/app.zip`
-2. Uploads it to a new S3 bucket
-3. Creates the Beanstalk application + application version
-4. Creates the Beanstalk **environment** (ALB + Auto Scaling Group + EC2 — this is the slow step, ~4–6 min the first time)
-5. Creates the S3 uploads bucket, DynamoDB table, IAM roles, and Cognito user pool
-
-### Step 4 — Wait until healthy
-
-`terraform apply` returns once the API calls succeed, but the environment takes a few more minutes to boot. Check:
-
-```bash
-aws elasticbeanstalk describe-environments \
-  --environment-names $(terraform output -raw eb_environment_name) \
-  --profile personal --region us-east-1 \
-  --query "Environments[0].{Status:Status,Health:Health}"
-```
-
-Wait until `Status: Ready` and `Health: Green`.
-
-### Step 5 — Open the app
-
-```bash
-terraform output app_url
-```
-
-Open that URL in a browser and click **Load Sample Menu**.
-
----
-
-## Using the app
-
-1. **Load Sample Menu** — runs all 16 sample dishes through the full pipeline (idempotent — clicking again replaces, never duplicates)
-2. **Display language** dropdown — switches dish text to the Bedrock translation
-3. **Diet filters** (Gluten-Free / Dairy-Free / Vegan) — OR logic; the counter shows how many dishes match
-4. **Click any dish card** — review whether the LLM and rules engine agreed, override the confirmed allergens (human-in-the-loop), or delete the dish
-5. **Upload a menu file** — exercises the Textract OCR path
-6. **Add a dish manually** — test a single description without a file
-
----
-
-## Updating after a code change
-
-Any change under `app/` changes the zip's MD5, which Terraform uses in the application version name — so a normal apply picks it up and redeploys automatically:
-
-```bash
-cd terraform
 terraform apply
 ```
 
-No manual `eb deploy` needed. The rolling deploy takes ~1–2 min.
+Wait for the environment to go "Green"/"Ready" (takes ~4-6 minutes the first time), then open the `app_url` output in a browser and click "Load Sample Menu".
 
----
+## Testing without any AWS account first
+
+```
+./run_local.sh
+```
+
+Then open http://localhost:8000. This runs the identical Flask app/UI with Bedrock/Textract/S3/DynamoDB replaced by clearly-labelled offline stubs (still runs the real FSANZ rules engine), so you can confirm the UI/flow works before spending anything on AWS.
 
 ## Destroying everything
 
-```bash
+```
 cd terraform
-terraform destroy    # type "yes"
+terraform destroy
 ```
 
-Everything is set up to tear down cleanly in one pass — no manual "empty the bucket first" step:
-- Both S3 buckets: `force_destroy = true`
-- Elastic Beanstalk application: removes all versions
+Every resource that can normally block a clean teardown has been set up to allow it:
+
+- Both S3 buckets: `force_destroy = true` (deletes non-empty buckets)
+- Elastic Beanstalk application: `force_delete = true` (removes all application versions first)
 - DynamoDB table: `deletion_protection_enabled = false`
-- Nothing uses `prevent_destroy`
+
+Nothing here uses `prevent_destroy`, so a single `terraform destroy` tears down the whole stack in one pass.
 
 ---
 
-## Troubleshooting
+## Allergen & Compliance service (deliverable)
 
-| Symptom | Cause / fix |
-|---|---|
-| `app_url` returns 502/503 | Environment still booting — re-check `describe-environments` health. If stuck, run `aws elasticbeanstalk describe-events --environment-name <name> --max-records 20 --profile personal`. |
-| Dishes show `"llm_source": "offline"` | Bedrock not available (new account not verified, or wrong `bedrock_model_id`). The app keeps working via the rules engine. |
-| Translations show `[Spanish - offline] ...` | Bedrock unavailable **and** Amazon Translate not activated. Both need a fully-activated AWS account. |
-| Upload shows `SubscriptionRequiredException` | Textract needs a fully-activated/verified AWS account. S3 upload still succeeds; only the OCR call is blocked. |
-| Bulk "Load Sample Menu" returns 504 | ALB idle timeout — already set to 300s in `beanstalk.tf`. If you lowered it, raise it back. |
-| `terraform apply` IAM permission error | Your credentials can't create IAM roles. Use an admin identity or ask your AWS admin. |
-| `no matching Elastic Beanstalk Solution Stack` | AWS retired the platform version. Loosen `python_version_regex` in `terraform.tfvars` to `^64bit Amazon Linux 2023.*Python 3\\.1[0-9]$`. |
-| `t3.small aren't available in your VPC Subnets` | Handled in `network.tf` — subnets are filtered to AZs that offer the instance type. If you change `instance_type`, this auto-adjusts. |
+This section documents the **Allergen Extraction + Compliance Verification**
+workstream — the two-module deliverable focused on by this repo's owning team.
+It is kept independent of OCR, Translation and UI so the rest of the team can
+consume a clean API.
 
----
+### Which parts are LLM / RAG / Deterministic
 
-## Cost note
+| Concern | Engine | Where |
+|---|---|---|
+| Allergen extraction (primary signal) | **LLM via Bedrock Function Calling / Tool Use** | `services/bedrock_service.py` — `extract_allergens_tool_use` |
+| Allergen extraction (cross-check / fallback) | **Deterministic** keyword rules | `services/allergen_extraction.py` |
+| Regulatory retrieval | **RAG** — Bedrock Knowledge Base (AWS) or bundled `kb_docs/` (local) | `services/rag_service.py` |
+| Compliance verdict & declarations | **Deterministic** rules engine | `services/compliance_engine.py` |
+| Public orchestration / reconciliation | Deterministic merge (Bedrock + rules) | `services/allergen_service.py` |
 
-Elastic Beanstalk runs an always-on EC2 instance (`t3.small`), so unlike the serverless version this costs money while running (~a few cents/hour). **Run `terraform destroy` when you're done** to stop all charges. S3, DynamoDB, Cognito, Textract, and Bedrock are pay-per-use / free-tier eligible.
+The final regulatory decision is **never made by the LLM alone** — the
+deterministic rules engine reconciles and issues declaration / warning /
+advisory statements (task Principle 1).
+
+### Contracts (`services/allergen_contract.py`)
+
+- `ExtractRequest` → `{dish_name, description}`
+- `Allergen` → `{name, evidence, status, confidence, reason?}`
+  - `status` ∈ `CONFIRMED | POSSIBLE | UNKNOWN`. `POSSIBLE`/`UNKNOWN` are never
+    silently reported as compliant.
+- `ExtractionResult` → `{dish_name, allergens[], engine, llm_reasoning?}`
+- `ComplianceResult` → `{dish_name, allergens[], compliance, sources}`
+  - `compliance.status` ∈ `COMPLIANT | ACTION_REQUIRED | UNVERIFIED`
+  - `compliance` distinguishes `allergen_declarations`,
+    `warning_statements`, `advisory_statements` (never a single `warning`).
+
+### API
+
+```
+POST /api/allergens/extract
+  { "dish_name": "...", "description": "..." }
+  -> { "dish_name": "...", "allergens": [
+        {"name": "Cashew", "evidence": "cashew nuts", "status": "CONFIRMED", "confidence": 0.99}, ...] }
+
+POST /api/compliance/verify
+  { "dish_name": "...", "description": "...", "allergens": [ ...optional in-advance extraction... ] }
+  -> { "dish_name": "...", "compliance": {
+        "status": "COMPLIANT",
+        "allergen_declarations": ["Contains Cashews", "Contains Milk"],
+        "warning_statements": [],
+        "advisory_statements": [] }, "sources": [ ... ] }
+```
+
+Both accept either `dish_name` or the legacy `name` field. Example output for a
+sample call is shown in `app/tests/test_allergen_api.py`.
+
+### Function Calling / Tool Use
+
+`services/bedrock_service.py::extract_allergens_tool_use` drives extraction
+through a real Claude tool call. The JSON Schema in `_EXTRACT_ALLERGEN_TOOL`
+forces a structured `toolUse.input` (per-allergen name/evidence/status/
+confidence) instead of free-form prose. If Bedrock is unavailable (broken
+credentials, no model access, offline) it degrades to the deterministic engine,
+so the pipeline never hard-fails.
+
+### Running & testing
+
+No AWS account needed to exercise the deterministic path:
+
+```bash
+# deterministic + orchestration unit tests (stdlib unittest, no boto3 required)
+python -m unittest discover -s app/tests -p "test_*.py" -v
+
+# all tests including Function-Calling & API tests (needs boto3 -> use the venv)
+cd app && ../.venv/Scripts/python -m unittest discover -s tests -p "test_*.py" -v
+
+# smoke test the API locally (deterministic engine, no cloud)
+./run_local.sh          # then: curl -XPOST localhost:8000/api/allergens/extract -d '{"dish_name":"...","description":"..."}'
+```
+
+The real Bedrock path requires valid AWS credentials + Bedrock model access in
+the configured region (see prerequisites above). Set `BEDROCK_MODEL_ID` if you
+need a different Claude model.
+
+### Regulatory sources
+
+The canonical allergen taxonomy follows the NZ MPI page
+[Allergen declarations, warnings and advisory statements on food labels](
+https://www.mpi.govt.nz/food-business/labelling-composition-food-drinks/allergen-declarations-warnings-and-advisory-statements-on-food-labels)
+and FSANZ Standard 1.2.3. Bundled reference copies used for local retrieval are
+in `app/services/kb_docs/nz_peal_allergens.md` (the same docs are uploaded to the
+optional Bedrock Knowledge Base).
+
+### Known limitations
+
+- The deterministic keyword engine is a starting point and must be reviewed by a
+  food-safety qualified person before commercial use; it is not exhaustive.
+- Tree nuts are declared individually (per NZ MPI); the engine intentionally does
+  not collapse them into a generic "Nuts".
+- Uncertain/sulphite cases are surfaced as `POSSIBLE` / `ACTION_REQUIRED`,
+  never auto-confirmed, pending human review.
+

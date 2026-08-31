@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import time
 import uuid
 from typing import Dict, List, Optional
@@ -30,7 +31,11 @@ logger = logging.getLogger(__name__)
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "allergen-menu-items")
 LOCAL_MODE = os.environ.get("LOCAL_MODE", "false").lower() == "true"
-LOCAL_DB_PATH = os.environ.get("LOCAL_DB_PATH", "/tmp/allergen_local_db.json")
+# Use the platform temp dir rather than a hardcoded /tmp so the local
+# fallback also works on Windows (where /tmp does not exist as a path).
+LOCAL_DB_PATH = os.environ.get(
+    "LOCAL_DB_PATH", os.path.join(tempfile.gettempdir(), "allergen_local_db.json")
+)
 
 _table = None
 
@@ -51,6 +56,8 @@ def _load_local() -> List[Dict]:
 
 
 def _save_local(items: List[Dict]) -> None:
+    # Ensure the parent dir exists (may not exist on a fresh machine / Windows).
+    os.makedirs(os.path.dirname(LOCAL_DB_PATH), exist_ok=True)
     with open(LOCAL_DB_PATH, "w") as f:
         json.dump(items, f, indent=2)
 
