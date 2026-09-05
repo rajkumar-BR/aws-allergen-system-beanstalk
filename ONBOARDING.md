@@ -99,6 +99,18 @@ Then open http://localhost:8000 in your browser.
 > PowerShell session. Re-run it in every new terminal before starting the app,
 > or run the two commands in the same session.
 
+### Where the configuration files are
+
+| What | Path | Notes |
+|---|---|---|
+| AWS credentials | `~/.aws/credentials` (`[default]`) | set by `aws configure`; never committed |
+| App runtime variables | set by `.\setup_aws_env.ps1` (repo root) | per terminal session |
+| Variable reference | `.env.example` (repo root) | **reference only** — the app does not read `.env` |
+| Full configuration table | `README.md` → "Configuration" section | defaults, overrides, per-service regions |
+
+The app has **no `.env` loader** — exports must happen before `python
+application.py` starts (the modules read env vars once at import time).
+
 ### What "real AWS mode" means
 
 - `/health` returns `"local_mode": "false"`

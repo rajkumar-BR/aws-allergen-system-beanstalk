@@ -164,6 +164,63 @@ Bedrock model access must be explicitly enabled per AWS account and region befor
 
 With that done, you're ready for the "Quick start" steps below.
 
+## Configuration — how and where
+
+### How configuration works
+
+- **The app does NOT read a `.env` file.** There is no `python-dotenv`; config
+  comes only from **environment variables** (plus hard-coded module defaults as
+  a last resort). Do not rely on copying `.env.example` to `.env` — it won't be
+  picked up. `.env.example` exists only as a human-readable reference of the
+  variables.
+- Each service module reads its variables **once at import time**, so the
+  environment variables must be set **before** the app starts (same shell
+  session), not after.
+- **The one-stop config script is `setup_aws_env.ps1`** (repo root). It sets
+  every variable below correctly (regions, resource names, model, KB id) for
+  the deployed shared account. Run it in every terminal before starting the
+  app:
+  ```powershell
+  .\setup_aws_env.ps1
+  ```
+  Alternatively export the same variables manually (see the table below).
+  Everything the script sets is listed in it, so it is the authoritative
+  reference for the current deployment values.
+
+### Where configuration lives
+
+| What | Where | Notes |
+|---|---|---|
+| **AWS credentials** (AKIA key + secret) | `~/.aws/credentials` (`[default]`) | configured once via `aws configure`; never committed |
+| **AWS CLI region/output** | `~/.aws/config` | `region`, `output` |
+| **App runtime config** (regions, resources, model, KB) | environment variables set by `setup_aws_env.ps1` | per PowerShell session |
+| **Delegate defaults** | `app/services/*.py` module-level `os.environ.get(...)` | fallback only; see table |
+| **Deployment config** | `terraform/terraform.tfvars` (git-ignored) | only used by `terraform deploy` |
+
+### Environment variables
+
+| Variable | Default if unset | Set by `setup_aws_env.ps1` | Purpose |
+|---|---|---|---|
+| `AWS_REGION` | `ap-southeast-2` (Bedrock) / `us-east-1` (others) | `ap-southeast-2` | general fallback region |
+| `BEDROCK_REGION` | `AWS_REGION` | `ap-southeast-2` | Bedrock runtime region |
+| `KB_REGION` | `AWS_REGION` | `ap-southeast-2` | Bedrock Knowledge Base region |
+| `DYNAMODB_REGION` | `AWS_REGION`→`us-east-1` | `us-east-1` | DynamoDB table region |
+| `S3_REGION` | `AWS_REGION`→`us-east-1` | `us-east-1` | S3 uploads bucket region |
+| `TEXTRACT_REGION` | `AWS_REGION`→`us-east-1` | `us-east-1` | Textract region |
+| `BEDROCK_MODEL_ID` | `au.anthropic.claude-opus-4-6-v1` | same | inference-profile model id |
+| `KNOWLEDGE_BASE_ID` | `""` (RAG degrades to local) | `CBFZTLLUHU` | Bedrock KB for RAG |
+| `DYNAMODB_TABLE` | `allergen-menu-items` **stale** | `allergen-demo-dev-menu-items` | DynamoDB table name |
+| `S3_BUCKET` | `""` (S3 disabled) | `allergen-demo-dev-menu-uploads-669232219904` | S3 uploads bucket name |
+| `LOCAL_MODE` | `false` | `false` | `true` = offline stubs |
+| `PORT` | `8000` | — | Flask port |
+
+> ⚠️ **Why the script is required for real AWS mode:** the module defaults for
+> `DYNAMODB_TABLE` and `S3_BUCKET` are **not** the deployed resource names, and
+> `S3_BUCKET` defaults to empty (S3 uploads disabled). Without
+> `setup_aws_env.ps1` (or the same variables exported manually), DynamoDB
+> queries fail with `ResourceNotFoundException` and S3 uploads are unavailable —
+> even though Bedrock and RAG would still work.
+
 ## Run modes
 
 > 🧑‍🤝‍🧑 **New team member?** There is a full step-by-step onboarding guide
