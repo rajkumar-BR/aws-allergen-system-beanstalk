@@ -11,7 +11,7 @@ local mode (no AWS), skip to [Section 4](#4-offline-local-mode-no-aws).
 
 | Item | Where from | Notes |
 |---|---|---|
-| AWS credentials for the **shared account** | Your AWS admin (enterprise account) | Long-term IAM keys (`AKIA...`) or SSO access |
+| AWS credentials for the **shared account** | Your AWS admin (enterprise account) | IAM long-term keys (`AKIA...`) — the only method this project uses |
 | Python 3.11+ | python.org / enterprise toolchain | 3.13 verified |
 | The repo | `git clone <repo-url>` | |
 
@@ -38,34 +38,74 @@ Base managed retrieval), `gunicorn`, `Werkzeug`.
 You need credentials for the **enterprise account** that owns the deployed
 resources (Bedrock KB `YOUR_KNOWLEDGE_BASE_ID`, DynamoDB table, S3 bucket).
 
-### Option A — IAM long-term keys (simplest, recommended)
+This project uses **IAM long-term access keys** (AKIA-prefixed, never rotate on
+their own) — the simplest and recommended method. No SSO is needed.
 
-Get an access key from your admin, then:
+### Step-by-step (IAM long-term keys)
+
+**Step 1 — Get an access key from your AWS admin.**
+
+Your admin creates an IAM user for you in the enterprise account (or reuses an
+existing one for the team) and attaches the app's IAM policy (see
+[permissions](#what-you-need-permission-for)). They give you two values:
+
+- **Access Key ID** — starts with `AKIA...`
+- **Secret Access Key** — a long random string (shown only once)
+
+> Keep these safe. The secret is not recoverable — if lost, generate a new key
+> pair in the IAM console (`Users → <you> → Security credentials →
+> Create access key`).
+
+**Step 2 — Install the AWS CLI** (see README `AWS credentials setup` → step 1
+for the installer links), then run:
 
 ```powershell
 aws configure
-# AWS Access Key ID: AKIA...
-# AWS Secret Access Key: ********
-# Default region name: ap-southeast-2
-# Default output format: json
 ```
 
-Verify:
+Answer the four prompts:
+
+```
+AWS Access Key ID [None]: AKIAXXXXXXXXXXXXXXXX
+AWS Secret Access Key [None]: <paste your secret>
+Default region name [None]: ap-southeast-2
+Default output format [None]: json
+```
+
+**Step 3 — Know where the credentials were written.**
+
+`aws configure` writes two plaintext files under your user profile (NOT inside
+the repo — they are never committed):
+
+| File | Path (Windows) | Contents |
+|---|---|---|
+| Credentials | `C:\Users\<you>\.aws\credentials` | `[default]` section with `aws_access_key_id` + `aws_secret_access_key` |
+| Config | `C:\Users\<you>\.aws\config` | `[default]` section with `region` + `output` |
+
+On macOS/Linux the same two files live at `~/.aws/credentials` and
+`~/.aws/config`. The app (boto3) reads them automatically — you do **not** need
+to set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` environment variables, and
+you do **not** need `AWS_PROFILE` (it defaults to `[default]`).
+
+**Step 4 — Verify the identity resolves.**
 
 ```powershell
 aws sts get-caller-identity
-# Should show the enterprise account ID (e.g. 123456789012) and your IAM user.
+# Should show the enterprise account ID (e.g. 123456789012) and your IAM user
+# ARN: arn:aws:iam::123456789012:user/<your-name>
 ```
 
-### Option B — AWS SSO (if your team uses Identity Center)
+If this fails, re-check the key pair or ask your admin whether the user exists
+in the enterprise account.
 
-```powershell
-aws configure sso          # follow prompts, use your enterprise SSO start URL
-aws sso login --profile <your-profile>
-$env:AWS_PROFILE = "<your-profile>"
-```
-
-Either way, the app uses whatever `boto3` resolves from the default chain.
+> 💡 **Manual alternative (not recommended):** instead of `aws configure` you
+> can place the same content directly in `~/.aws/credentials`:
+> ```
+> [default]
+> aws_access_key_id = AKIAXXXXXXXXXXXXXXXX
+> aws_secret_access_key = <your-secret>
+> ```
+> Prefer `aws configure` so the file permissions and format are correct.
 
 ---
 

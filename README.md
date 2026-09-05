@@ -120,8 +120,6 @@ export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
 export AWS_DEFAULT_REGION="us-east-1"
 ```
 
-If you use AWS SSO or an assumed role instead of a long-lived access key, `aws sso login --profile <profile-name>` followed by `export AWS_PROFILE=<profile-name>` works too - Terraform respects `AWS_PROFILE`.
-
 #### Where the IAM credentials live on Windows (long-term key mode)
 
 This project is set up to use **IAM long-term keys** (AKIA-prefixed, never
@@ -138,9 +136,8 @@ repository):
   the SDK picks them up automatically.
 - Current account for this project: **`YOUR_AWS_ACCOUNT_ID`** (IAM user `allergen-system-dev`),
   region **`ap-southeast-2`**.
-- Verify which identity you're using: `aws sts get-caller-identity`.
-  - `arn:aws:iam::...:user/...` → IAM long-term key (good).
-  - `arn:aws:sts::...:assumed-role/AWSReservedSSO_...` → you logged in with SSO.
+- Verify which identity you're using: `aws sts get-caller-identity` — it
+  should show an IAM user ARN: `arn:aws:iam::...:user/...`.
 
 > ⚠️ **Security**: `~/.aws/credentials` stores keys in plaintext. Never commit
 > that file or paste real keys into code/scripts (the repo excludes `.env`).
