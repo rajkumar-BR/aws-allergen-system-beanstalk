@@ -40,7 +40,14 @@ COMPLIANT = "COMPLIANT"
 ACTION_REQUIRED = "ACTION_REQUIRED"
 UNVERIFIED = "UNVERIFIED"
 
-AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-2")
+# Default region for the Bedrock allergen extraction + Knowledge Base glue in
+# this module is ap-southeast-2 (where the KB and inference profile live).
+AWS_REGION = os.environ.get(
+    "BEDROCK_REGION", os.environ.get("AWS_REGION", "ap-southeast-2")
+)
+# Knowledge Base client region: separate override so KB can be in a different
+# region than the app's other resources (DynamoDB/S3 default to us-east-1).
+KB_REGION = os.environ.get("KB_REGION", AWS_REGION)
 LOCAL_MODE = os.environ.get("LOCAL_MODE", "false").lower() == "true"
 # Local regulatory docs directory: reuse the repo-root docs/ (each ## heading is a PEAL category)
 KB_DOCS_DIR = os.path.abspath(
@@ -278,7 +285,14 @@ def _bedrock():
 
 
 def extract(dish_name: str, description: str = "", *, use_bedrock: bool = True) -> ExtractionResult:
-    """Extraction entry: prefer Claude Function Calling reconciled with the rules engine; fall back if unavailable."""
+    """Extraction entry: prefer Claude Function Calling reconciled with the rules engine; fall back if unavailable.
+
+    Bedrock is the primary signal, but when it is unreachable (bad
+    credentials, no model access, model-id misconfiguration, offline) we
+    degrade to the deterministic keyword engine so the API returns a useful
+    result instead of a 500 - the deterministic engine still runs, and the
+    merge that decides declarations is downstream anyway.
+    """
     req = ExtractRequest(dish_name=dish_name, description=description)
     if use_bedrock:
         try:
@@ -444,7 +458,7 @@ def _get_kb_client():
     if _kb_client is None:
         if not _HAS_BOTO3:
             raise RuntimeError("boto3 is required for AWS Knowledge Base access")
-        _kb_client = boto3.client("bedrock-agent-runtime", region_name=AWS_REGION)
+        _kb_client = boto3.client("bedrock-agent-runtime", region_name=KB_REGION)
     return _kb_client
 
 
@@ -493,11 +507,34 @@ def _search_kb_local(query: str, top_k: int = 5) -> List[Dict]:
 
 
 def _retrieve_kb_aws(query: str, kb_id: str, top_k: int = 5) -> List[Dict]:
-    resp = _get_kb_client().retrieve(
-        knowledgeBaseId=kb_id,
-        retrievalQuery={"text": query},
-        retrievalConfiguration={"vectorSearchConfiguration": {"numberOfResults": top_k}},
-    )
+    """Retrieve from a Bedrock Knowledge Base.
+
+    Modern "managed" knowledge bases require `managedSearchConfiguration`
+    (the older `vectorSearchConfiguration` is rejected with
+    ValidationException). Newer boto3/botocore accept the managed key; we
+    probe it and fall back to the legacy key only if the SDK rejects it.
+    """
+    client = _get_kb_client()
+    base = {
+        "knowledgeBaseId": kb_id,
+        "retrievalQuery": {"text": query},
+    }
+    try:
+        resp = client.retrieve(
+            **base,
+            retrievalConfiguration={"managedSearchConfiguration": {"numberOfResults": top_k}},
+        )
+    except Exception as first_exc:  # noqa: BLE001
+        # Older SDKs do not know "managedSearchConfiguration" and raise
+        # ParamValidationError; fall back to the legacy shape so older
+        # pinned boto3 versions keep working against vector KBs.
+        if "managedSearchConfiguration" in str(first_exc) or "Unknown parameter" in str(first_exc):
+            resp = client.retrieve(
+                **base,
+                retrievalConfiguration={"vectorSearchConfiguration": {"numberOfResults": top_k}},
+            )
+        else:
+            raise
     chunks: List[Dict] = []
     for r in resp.get("retrievalResults", []):
         s3_loc = (r.get("location", {}) or {}).get("s3Location", {}) or {}
@@ -511,17 +548,25 @@ def _retrieve_kb_aws(query: str, kb_id: str, top_k: int = 5) -> List[Dict]:
 
 
 def retrieve_context(query: str, kb_id: str | None = None, top_k: int = 5) -> Dict:
-    """Retrieve regulatory context -> {"engine": "aws"|"local"|"none", "chunks": [...]}"""
+    """Retrieve regulatory context -> {"engine": "aws"|"local"|"none", "chunks": [...]}.
+
+    Uses the AWS Bedrock Knowledge Base when KNOWLEDGE_BASE_ID is configured
+    and we are not in LOCAL_MODE; otherwise (or when the AWS call fails)
+    degrades to local retrieval over docs/*.md so the pipeline never
+    hard-fails - e.g. the default Beanstalk stack (create_knowledge_base=false)
+    and the offline demo both run on the local corpus.
+    """
     if not query or not query.strip():
         return {"engine": "none", "chunks": []}
+
     kb_id = kb_id or os.environ.get("KNOWLEDGE_BASE_ID", "")
-    if not LOCAL_MODE and kb_id:
+    if (not LOCAL_MODE) and kb_id:
         try:
             chunks = _retrieve_kb_aws(query.strip(), kb_id, top_k)
             if chunks:
                 return {"engine": "aws", "chunks": chunks}
             logger.warning("Bedrock KB '%s' returned no results", kb_id)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Bedrock KB retrieve failed, falling back to local: %s", exc)
     local = _search_kb_local(query.strip(), top_k)
     return {"engine": "local" if local else "none", "chunks": local}

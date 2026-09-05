@@ -228,7 +228,20 @@ aws bedrock-agent get-knowledge-base \
 ### 测试检索
 
 ```bash
-python scripts/quick_test_kb.py
+# 通过应用服务函数直接检索（推荐）
+cd app
+LOCAL_MODE=false KNOWLEDGE_BASE_ID=$YOUR_KB_ID python -c "
+from services import allergen_service as svc
+r = svc.retrieve_context('peanut requirements')
+print('engine:', r['engine'], '| chunks:', len(r['chunks']))
+"
+
+# 或用 AWS CLI 直接调 Retrieve API
+aws bedrock-agent-runtime retrieve \
+  --knowledge-base-id $YOUR_KB_ID \
+  --retrieval-query '{"text":"peanut requirements"}' \
+  --retrieval-configuration '{"managedSearchConfiguration":{"numberOfResults":3}}' \
+  --region ap-southeast-2
 ```
 
 ---
@@ -337,7 +350,12 @@ aws s3 ls s3://$(terraform output -raw kb_docs_bucket)/nz-peal/
 
 # 4. 测试检索
 export KNOWLEDGE_BASE_ID=$(terraform output -raw knowledge_base_id)
-python scripts/quick_test_kb.py
+cd app
+LOCAL_MODE=false python -c "
+from services import allergen_service as svc
+r = svc.retrieve_context('allergen declaration requirements')
+print('engine:', r['engine'], '| chunks:', len(r['chunks']))
+"
 ```
 
 ---
@@ -348,14 +366,21 @@ python scripts/quick_test_kb.py
 
 1. **测试 RAG 检索**
    ```bash
-   python scripts/test_knowledge_base.py --aws
+   export KNOWLEDGE_BASE_ID=$(terraform output -raw knowledge_base_id)
+   cd app
+   LOCAL_MODE=false python -c "
+   from services import allergen_service as svc
+   r = svc.retrieve_context('fish allergen requirements')
+   assert r['engine'] == 'aws'   # 命中 Bedrock KB
+   print('AWS RAG OK,', len(r['chunks']), 'chunks')
+   "
    ```
 
 2. **测试完整流程**
    ```bash
-   python scripts/test_claude_extraction.py --live
+   # 通过应用 UI 或 API：POST /api/allergens/extract
+   # （应用运行于真实 AWS 模式时自动使用 KB）
    ```
 
 3. **集成到应用**
-   - 代码会自动使用 Knowledge Base
-   - 无需修改代码逻辑
+   - 代码会自动使用 Knowledge Base（设 `KNOWLEDGE_BASE_ID` 即可，无需改代码）

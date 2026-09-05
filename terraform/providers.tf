@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.4"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   # Local state by default so `terraform destroy` has zero extra

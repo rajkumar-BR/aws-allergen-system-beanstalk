@@ -115,29 +115,46 @@ export AWS_PROFILE=your-profile-name
 # 设置 Knowledge Base ID
 export KNOWLEDGE_BASE_ID=your-kb-id
 
-# 运行快速测试
-python scripts/quick_test_kb.py
+# 运行快速测试（通过应用 API 或直接调用 allergen_service）
+# 方式一：通过 API（需应用运行）
+# POST /api/allergens/extract  { "dish_name": "...", "description": "..." }
+# 方式二：直接调函数
+cd app
+LOCAL_MODE=false KNOWLEDGE_BASE_ID=your-kb-id python -c "
+from services import allergen_service as svc
+r = svc.retrieve_context('peanut requirements')
+print(r['engine'], len(r['chunks']))
+"
 ```
 
 ### 2. 完整测试
 
 ```bash
-# 本地模式测试（使用 kb_docs/）
-python scripts/test_knowledge_base.py --local
+# 本地模式测试（使用 docs/ 本地语料）
+cd app
+LOCAL_MODE=true python -c "
+from services import allergen_service as svc
+r = svc.retrieve_context('milk requirements')
+assert r['engine'] == 'local'
+print('local RAG OK:', len(r['chunks']), 'chunks')
+"
 
-# AWS 模式测试
+# AWS 模式测试（需真实凭证）
 export KNOWLEDGE_BASE_ID=your-kb-id
-python scripts/test_knowledge_base.py --aws
-
-# 对比测试
-python scripts/test_knowledge_base.py --compare
+cd app
+LOCAL_MODE=false python -c "
+from services import allergen_service as svc
+r = svc.retrieve_context('peanut requirements')
+assert r['engine'] == 'aws'
+print('aws RAG OK:', len(r['chunks']), 'chunks')
+"
 ```
 
 ### 3. 单元测试
 
 ```bash
 cd app
-python -m unittest tests.test_rag_service -v
+python -m unittest discover -s tests -p "test_*.py" -v   # 如 tests 存在
 ```
 
 ## 四、降级行为
@@ -162,12 +179,12 @@ RAG 服务会自动降级：
 ### 在代码中检查
 
 ```python
-from services.rag_service import is_available
+from services import allergen_service as svc
 
-if is_available():
+if svc.is_kb_available():
     print("将使用 AWS Knowledge Base")
 else:
-    print("将使用本地 kb_docs/ 搜索")
+    print("将使用本地 docs/ 搜索")
 ```
 
 ### 使用 AWS CLI 检查

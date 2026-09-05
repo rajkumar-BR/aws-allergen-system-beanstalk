@@ -1,6 +1,6 @@
 # AI-Powered Allergen Compliance & Menu Translation - Beanstalk Edition
 
-This is a from-scratch rebuild of the project in `AI_Allergen_Compliance_Presentation.pdf`, hosted on Elastic Beanstalk (per your request). Compliance verification runs a deterministic NZ PEAL rules engine cross-checked against a Bedrock LLM read of the dish, plus an **optional** Bedrock RAG knowledge base of the NZ MPI / FSANZ regulatory docs that adds grounded citations when deployed (opt-in via `terraform/bedrock_kb.tf`). Without the KB the app degrades to a bundled local retrieval (`app/services/kb_docs/`), so everything still works with zero AWS dependencies.
+This is a from-scratch rebuild of the project in `AI_Allergen_Compliance_Presentation.pdf`, hosted on Elastic Beanstalk (per your request). Compliance verification runs a deterministic NZ PEAL rules engine cross-checked against a Bedrock LLM read of the dish, plus an **optional** Bedrock RAG knowledge base of the NZ MPI / FSANZ regulatory docs that adds grounded citations when deployed (opt-in via `terraform/bedrock_kb.tf`). Without the KB the app degrades to a bundled local retrieval (`docs/`), so everything still works with zero AWS dependencies.
 
 Everything is provisioned with Terraform and is fully tear-down-able with `terraform destroy` (see "Destroying everything" below).
 
@@ -20,7 +20,7 @@ Plus: gluten (from wheat, rye, barley, oats, spelt, triticale) must also be list
 | Application hosting | Elastic Beanstalk, provisioned by Terraform |
 | API Gateway + Cognito auth | Not required - Beanstalk's own load balancer serves the app directly. A Cognito User Pool is still provisioned (`terraform/cognito.tf`) to cover that checklist item for later use, but the demo UI does not enforce login yet |
 | Lambda two-step chain (Analyze -> Translate) | Runs as two plain function calls inside one Flask request (`app/application.py: _run_pipeline`) - no Lambda needed once the app has its own always-on compute (Beanstalk) |
-| Bedrock LLM anchored on NZ MPI PEAL knowledge base | Allergens are extracted by a Bedrock LLM call and cross-checked by a deterministic keyword rules engine (`app/services/allergen_rules.py`). Compliance is then verified with an optional Bedrock RAG layer: `app/services/rag_service.py` retrieves NZ PEAL regulatory context (from the Bedrock KB when `KNOWLEDGE_BASE_ID` is set, otherwise a bundled local retrieval over `app/services/kb_docs/`) and `app/services/compliance_service.py` produces the final "Contains X" set plus per-allergen regulatory citations. The union of all signals is shown to the diner; disagreements are flagged for human review |
+| Bedrock LLM anchored on NZ MPI PEAL knowledge base | Allergens are extracted by a Bedrock LLM call and cross-checked by a deterministic keyword rules engine (`app/services/allergen_rules.py`). Compliance is then verified with an optional Bedrock RAG layer: `app/services/allergen_service.py::retrieve_context` retrieves NZ PEAL regulatory context (from the Bedrock KB when `KNOWLEDGE_BASE_ID` is set, otherwise a bundled local retrieval over `docs/`) and `app/services/allergen_service.py::verify` produces the final "Contains X" set plus per-allergen regulatory citations. The union of all signals is shown to the diner; disagreements are flagged for human review |
 | AWS Textract OCR | `app/services/textract_service.py` - only invoked when a file is uploaded |
 | Multilingual translation (Spanish, German, Japanese, Mandarin) | `app/services/bedrock_service.py::translate_dish` - Bedrock LLM primary, Amazon Translate as an automatic fallback if Bedrock fails |
 | DynamoDB (menus & allergen metadata) | `terraform/dynamodb.tf` + `app/services/dynamo_service.py` |
@@ -35,17 +35,15 @@ app/                    Flask application (this whole folder is what gets
   application.py         Routes + the two-step pipeline
   services/
     allergen_rules.py     FSANZ 1.2.3 rules engine (deterministic scan)
-    bedrock_service.py     Bedrock allergen extraction + translation
-    rag_service.py         Bedrock RAG retrieval (local keyword fallback)
-    compliance_service.py  Compliance verification (RAG + rules engine)
-    kb_docs/               Bundled NZ PEAL regulatory docs - local RAG corpus
-                           and the source uploaded to the Bedrock KB
-    textract_service.py    OCR
-    dynamo_service.py      DynamoDB CRUD (+ local JSON fallback)
-    s3_service.py           Raw file storage (+ local fallback)
+    allergen_service.py   Orchestration: extract / verify / RAG retrieve /
+                          pipeline merge (+ local fallbacks)
+    bedrock_service.py    Bedrock allergen extraction + translation
+    textract_service.py   OCR
+    dynamo_service.py     DynamoDB CRUD (+ local JSON fallback)
+    s3_service.py         Raw file storage (+ local fallback)
   static/                 UI (index.html / style.css / app.js)
   sample_data/
-    sample_menu.json        8 sample dishes used by "Load Sample Menu"
+    sample_menu.json      16 sample dishes used by "Load Sample Menu"
   requirements.txt
   Procfile                gunicorn entry point Beanstalk uses
 
@@ -124,6 +122,29 @@ export AWS_DEFAULT_REGION="us-east-1"
 
 If you use AWS SSO or an assumed role instead of a long-lived access key, `aws sso login --profile <profile-name>` followed by `export AWS_PROFILE=<profile-name>` works too - Terraform respects `AWS_PROFILE`.
 
+#### Where the IAM credentials live on Windows (long-term key mode)
+
+This project is set up to use **IAM long-term keys** (AKIA-prefixed, never
+expire) as the primary auth mode, so no SSO re-login is needed. The keys are
+stored in the standard AWS CLI files under your user profile (NOT in the
+repository):
+
+| Item | File | Example |
+|---|---|---|
+| Access Key ID + Secret | `C:\Users\<you>\.aws\credentials` | `[default] aws_access_key_id=AKIA...` |
+| Region / output format | `C:\Users\<you>\.aws\config` | `[default] region = ap-southeast-2` |
+
+- They live under `[default]`, so **no `AWS_PROFILE` or env vars are required** -
+  the SDK picks them up automatically.
+- Current account for this project: **`669232219904`** (IAM user `aws_user`),
+  region **`ap-southeast-2`**.
+- Verify which identity you're using: `aws sts get-caller-identity`.
+  - `arn:aws:iam::...:user/...` → IAM long-term key (good).
+  - `arn:aws:sts::...:assumed-role/AWSReservedSSO_...` → you logged in with SSO.
+
+> ⚠️ **Security**: `~/.aws/credentials` stores keys in plaintext. Never commit
+> that file or paste real keys into code/scripts (the repo excludes `.env`).
+
 ### 4. Verify credentials work
 
 ```
@@ -142,6 +163,65 @@ Bedrock model access must be explicitly enabled per AWS account and region befor
 4. Wait for status to show "Access granted" (usually near-instant for Anthropic models on Bedrock).
 
 With that done, you're ready for the "Quick start" steps below.
+
+## 运行模式选择
+
+> 🧑‍🤝‍🧑 **团队新成员?** 完整的上手流程(企业共享账号、从 clone 到连云端运行)见
+> **[`ONBOARDING.md`](ONBOARDING.md)**——按它操作即可,无需看本 README 的细节。
+
+本项目支持两种运行模式：
+
+### **1. 真实 AWS 模式（默认，推荐）**
+使用 `~/.aws/credentials` 中的 IAM 长期凭证（AKIA开头），**无需频繁登录验证**，所有 AI 能力走真实 AWS 服务。
+
+**启动方式（Windows PowerShell）：**
+
+```powershell
+# 一次配置长期凭证（IAM 用户 Access Key）
+aws configure
+#   AWS Access Key ID: AKIA...
+#   Secret Access Key: ********
+#   Default region name: ap-southeast-2
+#   Default output format: json
+
+# 设置分区域环境变量并启动（推荐用 setup_aws_env.ps1）
+.\setup_aws_env.ps1     # 设置所有区域/资源名环境变量
+
+# 启动应用
+cd app
+.\.venv\Scripts\python.exe application.py
+# 访问 http://localhost:8000
+```
+
+**分区域说明（重要）：** 本项目资源跨两个 AWS 区域，`setup_aws_env.ps1` / 服务代码按服务区分区域：
+
+| 服务 | 区域 | 说明 |
+|---|---|---|
+| Bedrock（提取/翻译） | `ap-southeast-2` | inference profile 所在区域 |
+| Knowledge Base (RAG) | `ap-southeast-2` | KB `CBFZTLLUHU` |
+| DynamoDB | `us-east-1` | 表 `allergen-demo-dev-menu-items` |
+| S3（菜单上传桶） | `us-east-1` | 桶 `allergen-demo-dev-menu-uploads-...` |
+| Textract | `us-east-1` | OCR |
+
+每个服务模块支持独立区域覆盖变量（`BEDROCK_REGION` / `KB_REGION` / `DYNAMODB_REGION` / `S3_REGION` / `TEXTRACT_REGION`），缺省回退到 `AWS_REGION`。
+
+**验证当前身份：**
+```
+aws sts get-caller-identity
+# arn:aws:iam::...:user/...  → IAM 长期凭证（正确）
+```
+
+### **2. 本地模拟模式（无需 AWS）**
+无需 AWS 账户，使用本地规则引擎 + 本地文档 + JSON 文件存储，方便离线开发和 UI 调试。
+
+```bash
+# Windows PowerShell（Windows 下 run_local.sh 不适用，手动设置）
+$env:LOCAL_MODE = "true"
+cd app
+.\.venv\Scripts\python.exe application.py
+```
+
+本地模式下 Bedrock → 关键词规则引擎、RAG → 本地 `docs/*.md`、S3 → 临时目录、DynamoDB → JSON 文件，所有降级都清晰标注（如 `[Spanish - offline]`）。
 
 ## Quick start (real AWS deployment)
 
@@ -184,7 +264,7 @@ Nothing here uses `prevent_destroy`, so a single `terraform destroy` tears down 
 ## Allergen & Compliance service (deliverable)
 
 This section documents the **Allergen Extraction + Compliance Verification**
-workstream — the two-module deliverable focused on by this repo's owning team.
+workstream — the deliverable focused on by this repo's owning team.
 It is kept independent of OCR, Translation and UI so the rest of the team can
 consume a clean API.
 
@@ -192,20 +272,20 @@ consume a clean API.
 
 | Concern | Engine | Where |
 |---|---|---|
-| Allergen extraction (primary signal) | **LLM via Bedrock Function Calling / Tool Use** | `services/bedrock_service.py` — `extract_allergens_tool_use` |
-| Allergen extraction (cross-check / fallback) | **Deterministic** keyword rules | `services/allergen_extraction.py` |
-| Regulatory retrieval | **RAG** — Bedrock Knowledge Base (AWS) or bundled `kb_docs/` (local) | `services/rag_service.py` |
-| Compliance verdict & declarations | **Deterministic** rules engine | `services/compliance_engine.py` |
-| Public orchestration / reconciliation | Deterministic merge (Bedrock + rules) | `services/allergen_service.py` |
+| Allergen extraction (primary signal) | **LLM via Bedrock Tool Use** | `services/bedrock_service.py` — `extract_allergens_tool_use` |
+| Allergen extraction (cross-check / fallback) | **Deterministic** keyword rules | `services/allergen_rules.py` — `scan_text_for_allergens` |
+| Regulatory retrieval | **RAG** — Bedrock Knowledge Base (AWS) or bundled `docs/` (local) | `services/allergen_service.py` — `retrieve_context` / `_retrieve_kb_aws` / `_search_kb_local` |
+| Compliance verdict & declarations | **Deterministic** rules engine | `services/allergen_service.py` — `verify` / `evaluate_compliance` |
+| Public orchestration / reconciliation | Deterministic merge (Bedrock + rules + RAG) | `services/allergen_service.py` — `extract` / `verify_pipeline` / `_run_pipeline` |
 
 The final regulatory decision is **never made by the LLM alone** — the
 deterministic rules engine reconciles and issues declaration / warning /
 advisory statements (task Principle 1).
 
-### Contracts (`services/allergen_contract.py`)
+### Contracts (defined in `services/allergen_service.py`)
 
 - `ExtractRequest` → `{dish_name, description}`
-- `Allergen` → `{name, evidence, status, confidence, reason?}`
+- `Allergen` → `{name, evidence, status, confidence}`
   - `status` ∈ `CONFIRMED | POSSIBLE | UNKNOWN`. `POSSIBLE`/`UNKNOWN` are never
     silently reported as compliant.
 - `ExtractionResult` → `{dish_name, allergens[], engine, llm_reasoning?}`
@@ -231,8 +311,8 @@ POST /api/compliance/verify
         "advisory_statements": [] }, "sources": [ ... ] }
 ```
 
-Both accept either `dish_name` or the legacy `name` field. Example output for a
-sample call is shown in `app/tests/test_allergen_api.py`.
+Both accept either `dish_name` or the legacy `name` field. The route handlers
+live in `app/application.py` and delegate to `services/allergen_service.py`.
 
 ### Function Calling / Tool Use
 
@@ -245,22 +325,22 @@ so the pipeline never hard-fails.
 
 ### Running & testing
 
-No AWS account needed to exercise the deterministic path:
+No AWS account needed to exercise the deterministic path (`LOCAL_MODE=true`):
 
-```bash
-# deterministic + orchestration unit tests (stdlib unittest, no boto3 required)
-python -m unittest discover -s app/tests -p "test_*.py" -v
-
-# all tests including Function-Calling & API tests (needs boto3 -> use the venv)
-cd app && ../.venv/Scripts/python -m unittest discover -s tests -p "test_*.py" -v
-
-# smoke test the API locally (deterministic engine, no cloud)
-./run_local.sh          # then: curl -XPOST localhost:8000/api/allergens/extract -d '{"dish_name":"...","description":"..."}'
+```powershell
+# Windows PowerShell — start in local mode, then hit the API
+$env:LOCAL_MODE = "true"
+cd app
+.\.venv\Scripts\python.exe application.py
+# then: Invoke-WebRequest http://localhost:8000/api/allergens/extract -Method POST -Body '{"dish_name":"...","description":"..."}' -ContentType 'application/json'
 ```
 
-The real Bedrock path requires valid AWS credentials + Bedrock model access in
-the configured region (see prerequisites above). Set `BEDROCK_MODEL_ID` if you
-need a different Claude model.
+For the real AWS path (Bedrock + KB + DynamoDB + S3), set `LOCAL_MODE=false`
+(or unset it — false is the module default), set the per-service region
+variables (see `setup_aws_env.ps1`), and use valid IAM credentials in
+`~/.aws/credentials`. Set `BEDROCK_MODEL_ID` if you need a different Claude
+model (must be an inference-profile id such as `au.anthropic.claude-opus-4-6-v1`,
+not a bare foundation-model id).
 
 ### Regulatory sources
 
@@ -268,8 +348,9 @@ The canonical allergen taxonomy follows the NZ MPI page
 [Allergen declarations, warnings and advisory statements on food labels](
 https://www.mpi.govt.nz/food-business/labelling-composition-food-drinks/allergen-declarations-warnings-and-advisory-statements-on-food-labels)
 and FSANZ Standard 1.2.3. Bundled reference copies used for local retrieval are
-in `app/services/kb_docs/nz_peal_allergens.md` (the same docs are uploaded to the
-optional Bedrock Knowledge Base).
+in `docs/` (e.g. `nz_peal_allergens.md` and the MPI/FSANZ PDFs; the same docs
+can be uploaded to the optional Bedrock Knowledge Base referenced by
+`KNOWLEDGE_BASE_ID`).
 
 ### Known limitations
 

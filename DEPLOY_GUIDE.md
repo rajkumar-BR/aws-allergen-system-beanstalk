@@ -12,6 +12,13 @@
    ```
 3. **Bedrock model access** for the model in `terraform/variables.tf`
    (`bedrock_model_id`, default `global.anthropic.claude-haiku-4-5-20251001-v1:0`):
+   - `bedrock_model_id` must be an **inference profile id** (`global.*` or
+     `au.*`), not a bare foundation-model id (e.g.
+     `anthropic.claude-opus-4-6-v1` is rejected by Converse with
+     `ValidationException`). Local development uses
+     `au.anthropic.claude-opus-4-6-v1` (set in `setup_aws_env.ps1` /
+     `bedrock_service.py`); the Beanstalk stack's env var comes from
+     `var.bedrock_model_id`, so set it to a profile id you have access to.
    - Bedrock foundation models are auto-enabled in commercial regions on
      first use. Verify with:
      ```bash
@@ -95,6 +102,8 @@ Open that URL in a browser. Then:
 |---|---|
 | `app_url` returns 502/503 | Environment is still booting - wait, then re-check `describe-environments` health. If it stays unhealthy, check `aws elasticbeanstalk describe-events --environment-name <name> --max-records 20` for the actual error. |
 | "Load Sample Menu" works but every dish shows `"llm_source": "offline"` | Bedrock model access hasn't been granted yet in this region/account (step 0.3), or `bedrock_model_id` in `terraform.tfvars` doesn't match a model you have access to. The app *keeps working* via the offline fallback either way. |
+| RAG falls back to local with `Incompatible configuration: vectorSearchConfiguration is not supported for managed knowledge bases` | `boto3` is too old to know `managedSearchConfiguration`. Install the pinned version from `app/requirements.txt` (`boto3==1.43.88` or newer, ≥1.36) into whatever environment runs the code. |
+| Dish stores `rag_engine=local-rag + rules` even in real AWS mode | The record was created *before* the RAG fix was applied. Re-run "Load Sample Menu" (or re-add the dish) to regenerate with AWS RAG; new dishes use `bedrock-rag + rules`. |
 | Translations look like `[Spanish - offline] ...` | Same Bedrock access issue as above, and Amazon Translate fallback also failed (check the instance role has `translate:TranslateText`, already granted in `iam.tf`). |
 | `terraform apply` fails with an IAM permissions error | Your AWS CLI credentials don't have rights to create IAM roles/policies. Ask your AWS admin for `IAMFullAccess`-equivalent rights, or have them run this for you. |
 | `terraform apply` fails on the solution stack data source (`no matching Elastic Beanstalk Solution Stack found`) | AWS periodically retires old Python 3.12 platform versions. Loosen `python_version_regex` in `terraform.tfvars` to `^64bit Amazon Linux 2023.*Python 3\\.1[0-9]$` or check `aws elasticbeanstalk list-available-solution-stacks` for exact current names. |

@@ -28,7 +28,13 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
 
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+# Region resolution: a service-specific override wins, otherwise fall back to
+# the shared AWS_REGION. DynamoDB is deployed in us-east-1 while Bedrock/KB is
+# in ap-southeast-2, so a single AWS_REGION cannot serve both - per-service
+# overrides (DYNAMODB_REGION) let the app talk to both regions at once.
+AWS_REGION = os.environ.get(
+    "DYNAMODB_REGION", os.environ.get("AWS_REGION", "us-east-1")
+)
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "allergen-menu-items")
 LOCAL_MODE = os.environ.get("LOCAL_MODE", "false").lower() == "true"
 # Use the platform temp dir rather than a hardcoded /tmp so the local
@@ -64,6 +70,7 @@ def _save_local(items: List[Dict]) -> None:
 
 # ---------------------------------------------------------------- public API
 def put_item(item: Dict) -> Dict:
+    """Store item in DynamoDB (AWS) or the local JSON fallback (LOCAL_MODE)."""
     item.setdefault("item_id", f"dish-{uuid.uuid4().hex[:8]}")
     item["updated_at"] = int(time.time())
 
@@ -74,39 +81,38 @@ def put_item(item: Dict) -> Dict:
         _save_local(items)
         return item
 
-    try:
-        _get_table().put_item(Item=item)
-        return item
-    except (BotoCoreError, ClientError) as exc:
-        logger.error("DynamoDB put_item failed: %s", exc)
-        raise
+    if not TABLE_NAME:
+        raise ValueError("DYNAMODB_TABLE environment variable is not set; cannot use AWS DynamoDB")
+
+    _get_table().put_item(Item=item)
+    return item
 
 
 def list_items(menu_id: str) -> List[Dict]:
+    """List items by menu_id from DynamoDB (AWS) or local JSON (LOCAL_MODE)."""
     if LOCAL_MODE:
         return [i for i in _load_local() if i["menu_id"] == menu_id]
 
-    try:
-        response = _get_table().query(KeyConditionExpression=Key("menu_id").eq(menu_id))
-        return response.get("Items", [])
-    except (BotoCoreError, ClientError) as exc:
-        logger.error("DynamoDB query failed: %s", exc)
-        raise
+    if not TABLE_NAME:
+        raise ValueError("DYNAMODB_TABLE environment variable is not set; cannot use AWS DynamoDB")
+
+    response = _get_table().query(KeyConditionExpression=Key("menu_id").eq(menu_id))
+    return response.get("Items", [])
 
 
 def get_item(menu_id: str, item_id: str) -> Optional[Dict]:
+    """Get a single item from DynamoDB (AWS) or local JSON (LOCAL_MODE)."""
     if LOCAL_MODE:
         for i in _load_local():
             if i["menu_id"] == menu_id and i["item_id"] == item_id:
                 return i
         return None
 
-    try:
-        response = _get_table().get_item(Key={"menu_id": menu_id, "item_id": item_id})
-        return response.get("Item")
-    except (BotoCoreError, ClientError) as exc:
-        logger.error("DynamoDB get_item failed: %s", exc)
-        raise
+    if not TABLE_NAME:
+        raise ValueError("DYNAMODB_TABLE environment variable is not set; cannot use AWS DynamoDB")
+
+    response = _get_table().get_item(Key={"menu_id": menu_id, "item_id": item_id})
+    return response.get("Item")
 
 
 def delete_item(menu_id: str, item_id: str) -> None:

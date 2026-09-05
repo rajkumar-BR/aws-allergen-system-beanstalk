@@ -51,7 +51,7 @@ variable "create_knowledge_base" {
 }
 
 variable "knowledge_base_id" {
-  description = "Bedrock Knowledge Base id the app retrieves from for compliance verification. Empty = app runs rules-only (with local keyword retrieval over bundled kb_docs/)."
+  description = "Bedrock Knowledge Base id the app retrieves from for compliance verification. Empty = app runs rules-only (with local keyword retrieval over bundled docs/)."
   type        = string
   default     = ""
 }

@@ -79,7 +79,29 @@ function translatedView(item) {
   if (currentLang === "en" || !item.translations || !item.translations[currentLang]) {
     return { name: item.name, description: item.description };
   }
-  return item.translations[currentLang];
+  const trans = item.translations[currentLang];
+  
+  // 美化离线翻译显示
+  let name = trans.name || item.name;
+  let desc = trans.description || item.description;
+  
+  // 移除离线占位符前缀
+  const langNames = {
+    es: 'Spanish', de: 'German', ja: 'Japanese', zh: 'Mandarin Chinese (Simplified)'
+  };
+  const langName = langNames[currentLang] || currentLang;
+  
+  const offlinePrefix = `[${langName} - offline] `;
+  if (name.startsWith(offlinePrefix)) {
+    name = name.slice(offlinePrefix.length);
+  }
+  
+  const descPrefix = `[${langName} translation unavailable offline] `;
+  if (desc.startsWith(descPrefix)) {
+    desc = desc.slice(descPrefix.length);
+  }
+  
+  return { name, description: desc };
 }
 
 function passesFilters(item) {
@@ -132,7 +154,7 @@ function renderGrid() {
         </div>
         <div class="dish-body">
           <h4>${escapeHtml(view.name)}</h4>
-          ${currentLang !== "en" ? `<div class="translated-name">EN: ${escapeHtml(item.name)}</div>` : ""}
+          ${currentLang !== "en" ? `<div class="translated-name">🇬🇧 English: ${escapeHtml(item.name)}</div>` : ""}
           <p>${escapeHtml(view.description)}</p>
           <div class="tags">${tags}${diet}</div>
           <div class="status-badge">${item.status}${hasDisagreement ? " · needs review" : ""}</div>

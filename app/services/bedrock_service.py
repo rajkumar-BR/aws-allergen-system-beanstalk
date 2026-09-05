@@ -31,9 +31,17 @@ from .allergen_service import CONFIRMED, POSSIBLE, UNKNOWN
 
 logger = logging.getLogger(__name__)
 
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+# Bedrock runtime + Translate live in ap-southeast-2 (where the KB and
+# inference profile are), so default there; override via BEDROCK_REGION /
+# AWS_REGION when Bedrock is deployed elsewhere.
+AWS_REGION = os.environ.get("BEDROCK_REGION", os.environ.get("AWS_REGION", "ap-southeast-2"))
+# NOTE: Bedrock Converse/InvokeModel requires an *inference profile* id for
+# on-demand throughput in this account/region (the bare foundation-model id
+# like "anthropic.claude-opus-4-6-v1" is rejected with ValidationException).
+# Use the AU/APAC profile (au.*) for lowest latency from ap-southeast-2, or a
+# global.* profile for cross-region failover. Override via BEDROCK_MODEL_ID.
 BEDROCK_MODEL_ID = os.environ.get(
-    "BEDROCK_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    "BEDROCK_MODEL_ID", "au.anthropic.claude-opus-4-6-v1"
 )
 LOCAL_MODE = os.environ.get("LOCAL_MODE", "false").lower() == "true"
 
@@ -166,22 +174,18 @@ def extract_allergens_tool_use(dish_name: str, description: str) -> Dict:
     """Function-call driven allergen extraction (task Phase 3 / 7).
 
     Uses Bedrock tool-use so the model MUST return a structured `toolUse.input`
-    with per-allergen name/evidence/status/confidence. Degrades to the
-    deterministic keyword engine when Bedrock is unavailable or the model
-    output is unusable, so the pipeline never hard-fails.
+    with per-allergen name/evidence/status/confidence. Requires AWS credentials
+    and Bedrock model access.
 
     Returns:
         {
             "dish_name": ...,
             "allergens": [{"name": ..., "evidence": ..., "status": ..., "confidence": ...}],
             "reasoning": str,
-            "source": "bedrock-tool-use" | "offline",
-            "error": str,     # only present on degradation
+            "source": "bedrock-tool-use",
         }
     """
-    if LOCAL_MODE:
-        return _offline_extract_allergens_tool_use(dish_name, description)
-
+    # 强制要求AWS服务可用
     system_prompt = (
         "You are a food-safety compliance assistant for New Zealand "
         "restaurants, checking dishes against the FSANZ Standard 1.2.3 "
@@ -194,31 +198,34 @@ def extract_allergens_tool_use(dish_name: str, description: str) -> Dict:
         "doubt (under-declaring is unsafe)."
     )
     user_prompt = f"Dish name: {dish_name}\nDescription: {description}"
+    
+    # 直接调用AWS服务，不进行降级
     try:
         result = _converse_tool_use(system_prompt, user_prompt, _EXTRACT_ALLERGEN_TOOL)
-        allergens = [
-            {
-                "name": str(a.get("name", "")).strip(),
-                "evidence": str(a.get("evidence", "")).strip(),
-                "status": a.get("status", POSSIBLE)
-                           if a.get("status") in _ALLERGEN_STATUSES else POSSIBLE,
-                "confidence": float(a.get("confidence") or 0.0),
-                "reason": str(a.get("reason", "")).strip(),
-            }
-            for a in (result.get("allergens") or [])
-            if a and a.get("name")
-        ]
-        return {
-            "dish_name": result.get("dish_name", (dish_name or "").strip()),
-            "allergens": allergens,
-            "source": "bedrock-tool-use",
-        }
     except (BotoCoreError, ClientError, ValueError, json.JSONDecodeError,
             KeyError, IndexError, TypeError) as exc:
-        logger.warning("Bedrock tool-use extraction failed, using offline fallback: %s", exc)
-        out = _offline_extract_allergens_tool_use(dish_name, description)
-        out["error"] = str(exc)
-        return out
+        # Bedrock unavailable / model output unusable -> deterministic fallback,
+        # so the compliance pipeline never hard-fails (under-declaring is the
+        # unsafe failure mode, but returning 500 for every dish is worse).
+        logger.warning("Bedrock tool-use extraction failed, using deterministic fallback: %s", exc)
+        return _offline_extract_allergens_tool_use(dish_name, description)
+    allergens = [
+        {
+            "name": str(a.get("name", "")).strip(),
+            "evidence": str(a.get("evidence", "")).strip(),
+            "status": a.get("status", POSSIBLE)
+                       if a.get("status") in _ALLERGEN_STATUSES else POSSIBLE,
+            "confidence": float(a.get("confidence") or 0.0),
+            "reason": str(a.get("reason", "")).strip(),
+        }
+        for a in (result.get("allergens") or [])
+        if a and a.get("name")
+    ]
+    return {
+        "dish_name": result.get("dish_name", (dish_name or "").strip()),
+        "allergens": allergens,
+        "source": "bedrock-tool-use",
+    }
 
 
 def _offline_extract_allergens_tool_use(dish_name: str, description: str) -> Dict:

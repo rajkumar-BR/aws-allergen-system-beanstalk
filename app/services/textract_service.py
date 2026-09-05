@@ -16,7 +16,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
 
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+AWS_REGION = os.environ.get("TEXTRACT_REGION", os.environ.get("AWS_REGION", "us-east-1"))
 LOCAL_MODE = os.environ.get("LOCAL_MODE", "false").lower() == "true"
 
 _client = None

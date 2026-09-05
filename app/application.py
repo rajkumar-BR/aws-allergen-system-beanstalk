@@ -143,8 +143,8 @@ def _run_pipeline(menu_id: str, name: str, description: str, source: str) -> dic
 
     Compliance verification combines three signals: Bedrock LLM extraction,
     the deterministic NZ PEAL rules engine, and (when available) Bedrock RAG
-    regulatory context via rag_service + compliance_service. The RAG layer
-    degrades to the bundled kb_docs/ search when AWS is unavailable.
+    regulatory context (allergen_service.retrieve_context). The RAG layer
+    degrades to the bundled docs/ search when AWS is unavailable.
     """
     llm_result = bedrock_service.extract_allergens(name, description)
     rule_categories = allergen_rules.scan_text_for_allergens(f"{name} {description}")

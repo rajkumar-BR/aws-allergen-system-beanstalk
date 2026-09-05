@@ -15,7 +15,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
 
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+AWS_REGION = os.environ.get("S3_REGION", os.environ.get("AWS_REGION", "us-east-1"))
 BUCKET_NAME = os.environ.get("S3_BUCKET", "")
 LOCAL_MODE = os.environ.get("LOCAL_MODE", "false").lower() == "true"
 # Platform temp dir (not a hardcoded /tmp) so local uploads work on Windows too.
@@ -34,7 +34,7 @@ def _get_client():
 
 
 def upload_raw_file(file_bytes: bytes, filename: str, content_type: str) -> str:
-    """Returns a storage key/path for the saved raw file."""
+    """Returns a storage key/path for the saved raw file (S3 or local dir)."""
     key = f"uploads/{uuid.uuid4().hex[:10]}-{filename}"
 
     if LOCAL_MODE:
@@ -44,11 +44,10 @@ def upload_raw_file(file_bytes: bytes, filename: str, content_type: str) -> str:
             f.write(file_bytes)
         return path
 
-    try:
-        _get_client().put_object(
-            Bucket=BUCKET_NAME, Key=key, Body=file_bytes, ContentType=content_type
-        )
-        return f"s3://{BUCKET_NAME}/{key}"
-    except (BotoCoreError, ClientError) as exc:
-        logger.error("S3 upload failed: %s", exc)
-        raise
+    if not BUCKET_NAME:
+        raise ValueError("S3_BUCKET environment variable is not set; cannot use AWS S3")
+
+    _get_client().put_object(
+        Bucket=BUCKET_NAME, Key=key, Body=file_bytes, ContentType=content_type
+    )
+    return f"s3://{BUCKET_NAME}/{key}"
