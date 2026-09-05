@@ -81,11 +81,11 @@ function translatedView(item) {
   }
   const trans = item.translations[currentLang];
   
-  // 美化离线翻译显示
+  // Beautify offline translation display
   let name = trans.name || item.name;
   let desc = trans.description || item.description;
   
-  // 移除离线占位符前缀
+  // Strip the offline placeholder prefix
   const langNames = {
     es: 'Spanish', de: 'German', ja: 'Japanese', zh: 'Mandarin Chinese (Simplified)'
   };

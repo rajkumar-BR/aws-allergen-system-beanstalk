@@ -185,7 +185,7 @@ def extract_allergens_tool_use(dish_name: str, description: str) -> Dict:
             "source": "bedrock-tool-use",
         }
     """
-    # 强制要求AWS服务可用
+    # Require the AWS service to be available
     system_prompt = (
         "You are a food-safety compliance assistant for New Zealand "
         "restaurants, checking dishes against the FSANZ Standard 1.2.3 "
@@ -199,7 +199,7 @@ def extract_allergens_tool_use(dish_name: str, description: str) -> Dict:
     )
     user_prompt = f"Dish name: {dish_name}\nDescription: {description}"
     
-    # 直接调用AWS服务，不进行降级
+    # Call the AWS service directly, no fallback
     try:
         result = _converse_tool_use(system_prompt, user_prompt, _EXTRACT_ALLERGEN_TOOL)
     except (BotoCoreError, ClientError, ValueError, json.JSONDecodeError,

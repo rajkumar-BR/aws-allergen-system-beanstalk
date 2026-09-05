@@ -1,50 +1,50 @@
-# Knowledge Base 完整配置指南
+# Knowledge Base Complete Configuration Guide
 
-## 一、需要配置什么？
+## 1. What do you need to configure?
 
-Knowledge Base 需要以下组件：
+Knowledge Base requires the following components:
 
-| 组件 | 用途 | 是否需要手动配置 |
+| Component | Purpose | Manual Configuration Required? |
 |------|------|-----------------|
-| **S3 Bucket** | 存放法规文档 | ❌ Terraform 自动创建 |
-| **Knowledge Base** | RAG 检索服务 | ❌ Terraform 自动创建 |
-| **OpenSearch Serverless** | 向量存储 | ❌ Terraform 自动创建 |
-| **Service Role** | KB 访问权限 | ❌ Terraform 自动创建 |
-| **Knowledge Base ID** | 应用连接 ID | ✅ 需要从 Terraform 输出获取 |
-| **Ingestion Job** | 文档索引 | ✅ 需要手动触发 |
+| **S3 Bucket** | Stores regulatory documents | ❌ Created automatically by Terraform |
+| **Knowledge Base** | RAG retrieval service | ❌ Created automatically by Terraform |
+| **OpenSearch Serverless** | Vector store | ❌ Created automatically by Terraform |
+| **Service Role** | Knowledge Base access permissions | ❌ Created automatically by Terraform |
+| **Knowledge Base ID** | Application connection ID | ✅ Must be obtained from the Terraform output |
+| **Ingestion Job** | Document indexing | ✅ Must be triggered manually |
 
 ---
 
-## 二、步骤 1：修改 Terraform 配置
+## 2. Step 1: Modify the Terraform configuration
 
-编辑 `terraform/terraform.tfvars`：
+Edit `terraform/terraform.tfvars`:
 
 ```hcl
-# 启用 Knowledge Base 创建
+# Enable Knowledge Base creation
 create_knowledge_base = true
 
-# （可选）指定 embedding 模型（默认已配置）
+# (Optional) Specify the embedding model (a default is already configured)
 bedrock_embedding_model_arn = "arn:aws:bedrock:ap-southeast-2::foundation-model/amazon.titan-embed-text-v2:0"
 ```
 
 ---
 
-## 三、步骤 2：运行 Terraform 创建资源
+## 3. Step 2: Run Terraform to create the resources
 
 ```bash
 cd terraform
 
-# 初始化（首次运行）
+# Initialize (first run)
 terraform init
 
-# 查看将要创建的资源
+# Preview the resources that will be created
 terraform plan -var="create_knowledge_base=true"
 
-# 应用配置
+# Apply the configuration
 terraform apply -var="create_knowledge_base=true"
 ```
 
-### 预期输出
+### Expected output
 
 ```
 aws_s3_bucket.kb_docs[0]: Creating...
@@ -58,11 +58,11 @@ Apply complete! Resources: 8 added, 0 changed, 0 destroyed.
 
 ---
 
-## 四、步骤 3：获取 Knowledge Base ID
+## 4. Step 3: Get the Knowledge Base ID
 
-### 方法 1：从 Terraform 输出获取
+### Method 1: From the Terraform output
 
-添加到 `terraform/outputs.tf`：
+Add to `terraform/outputs.tf`:
 
 ```hcl
 output "knowledge_base_id" {
@@ -81,21 +81,21 @@ output "kb_docs_bucket" {
 }
 ```
 
-然后运行：
+Then run:
 
 ```bash
 terraform apply -var="create_knowledge_base=true"
 terraform output knowledge_base_id
 ```
 
-### 方法 2：从 AWS Console 获取
+### Method 2: From the AWS Console
 
-1. 登录 AWS Console
-2. 导航到 **Amazon Bedrock** → **Knowledge Bases**
-3. 找到名为 `allergen-demo-peal-kb` 的 Knowledge Base
-4. 复制 **Knowledge Base ID**（格式：`ABCDEFGHIJ`）
+1. Sign in to the AWS Console
+2. Navigate to **Amazon Bedrock** → **Knowledge Bases**
+3. Find the Knowledge Base named `allergen-demo-peal-kb`
+4. Copy the **Knowledge Base ID** (format: `ABCDEFGHIJ`)
 
-### 方法 3：使用 AWS CLI
+### Method 3: Using the AWS CLI
 
 ```bash
 aws bedrock-agent list-knowledge-bases \
@@ -105,27 +105,27 @@ aws bedrock-agent list-knowledge-bases \
 
 ---
 
-## 五、步骤 4：配置应用到 Knowledge Base
+## 5. Step 4: Connect the application to the Knowledge Base
 
-### 方法 1：设置环境变量
+### Method 1: Set environment variables
 
 ```bash
-# 设置 Knowledge Base ID
+# Set the Knowledge Base ID
 export KNOWLEDGE_BASE_ID=ABCDEFGHIJ
 
-# 设置 AWS 区域
+# Set the AWS region
 export AWS_REGION=ap-southeast-2
 
-# 禁用本地模式
+# Disable local mode
 export LOCAL_MODE=false
 ```
 
-### 方法 2：修改 Beanstalk 环境变量
+### Method 2: Modify the Beanstalk environment variables
 
-编辑 `terraform/beanstalk.tf`，找到环境变量配置部分：
+Edit `terraform/beanstalk.tf` and find the environment variable configuration section:
 
 ```hcl
-# 在现有的环境变量后面添加
+# Add this after the existing environment variables
 setting {
   namespace = "aws:elasticbeanstalk:application:environment"
   name      = "KNOWLEDGE_BASE_ID"
@@ -133,15 +133,15 @@ setting {
 }
 ```
 
-然后重新部署：
+Then redeploy:
 
 ```bash
 terraform apply
 ```
 
-### 方法 3：使用 `.env` 文件（本地开发）
+### Method 3: Use a `.env` file (local development)
 
-创建 `app/.env` 文件：
+Create an `app/.env` file:
 
 ```env
 KNOWLEDGE_BASE_ID=ABCDEFGHIJ
@@ -151,39 +151,39 @@ LOCAL_MODE=false
 
 ---
 
-## 六、步骤 5：触发文档 Ingestion
+## 6. Step 5: Trigger document ingestion
 
-Knowledge Base 创建后，需要触发文档索引：
+After the Knowledge Base is created, you need to trigger document indexing:
 
-### 方法 1：AWS Console
+### Method 1: AWS Console
 
-1. 导航到 **Bedrock** → **Knowledge Bases**
-2. 选择你的 Knowledge Base
-3. 点击 **Data sources** 标签
-4. 选择数据源
-5. 点击 **Sync** 按钮
+1. Navigate to **Bedrock** → **Knowledge Bases**
+2. Select your Knowledge Base
+3. Click the **Data sources** tab
+4. Select the data source
+5. Click the **Sync** button
 
-### 方法 2：AWS CLI
+### Method 2: AWS CLI
 
 ```bash
-# 获取 Data Source ID
+# Get the Data Source ID
 aws bedrock-agent list-data-sources \
   --knowledge-base-id YOUR_KB_ID \
   --region ap-southeast-2
 
-# 触发 ingestion job
+# Trigger the ingestion job
 aws bedrock-agent start-ingestion-job \
   --knowledge-base-id YOUR_KB_ID \
   --data-source-id YOUR_DS_ID \
   --region ap-southeast-2
 ```
 
-### 方法 3：在 Terraform 中自动触发（可选）
+### Method 3: Trigger automatically from Terraform (optional)
 
-添加到 `terraform/bedrock_kb.tf`：
+Add to `terraform/bedrock_kb.tf`:
 
 ```hcl
-# 注意：这可能增加 Terraform apply 时间
+# Note: This may increase Terraform apply time
 resource "null_resource" "trigger_ingestion" {
   count = var.create_knowledge_base ? 1 : 0
   
@@ -204,20 +204,20 @@ resource "null_resource" "trigger_ingestion" {
 
 ---
 
-## 七、步骤 6：验证配置
+## 7. Step 6: Verify the configuration
 
-### 检查 S3 文档
+### Check the S3 documents
 
 ```bash
-# 列出已上传的文档
+# List the uploaded documents
 aws s3 ls s3://allergen-demo-kb-docs-ACCOUNT_ID/nz-peal/
 
-# 预期输出：
+# Expected output:
 # PRE nz-peal/
 # 2024-XX-XX XX:XX:XX XXXX nz_peal_allergens.md
 ```
 
-### 检查 Knowledge Base 状态
+### Check the Knowledge Base status
 
 ```bash
 aws bedrock-agent get-knowledge-base \
@@ -225,10 +225,10 @@ aws bedrock-agent get-knowledge-base \
   --region ap-southeast-2
 ```
 
-### 测试检索
+### Test retrieval
 
 ```bash
-# 通过应用服务函数直接检索（推荐）
+# Retrieve directly through the application service function (recommended)
 cd app
 LOCAL_MODE=false KNOWLEDGE_BASE_ID=$YOUR_KB_ID python -c "
 from services import allergen_service as svc
@@ -236,7 +236,7 @@ r = svc.retrieve_context('peanut requirements')
 print('engine:', r['engine'], '| chunks:', len(r['chunks']))
 "
 
-# 或用 AWS CLI 直接调 Retrieve API
+# Or call the Retrieve API directly with the AWS CLI
 aws bedrock-agent-runtime retrieve \
   --knowledge-base-id $YOUR_KB_ID \
   --retrieval-query '{"text":"peanut requirements"}' \
@@ -246,28 +246,28 @@ aws bedrock-agent-runtime retrieve \
 
 ---
 
-## 八、完整配置清单
+## 8. Complete configuration checklist
 
-### 必需配置
+### Required configuration
 
-| 配置项 | 来源 | 示例值 |
+| Config item | Source | Example value |
 |--------|------|--------|
-| `KNOWLEDGE_BASE_ID` | Terraform 输出 | `ABCDEFGHIJ` |
-| `AWS_REGION` | 固定 | `ap-southeast-2` |
-| `LOCAL_MODE` | 固定 | `false` |
+| `KNOWLEDGE_BASE_ID` | Terraform output | `ABCDEFGHIJ` |
+| `AWS_REGION` | Fixed | `ap-southeast-2` |
+| `LOCAL_MODE` | Fixed | `false` |
 
-### AWS 资源（Terraform 自动创建）
+### AWS resources (created automatically by Terraform)
 
-| 资源 | 名称模式 | 说明 |
+| Resource | Name pattern | Description |
 |------|----------|------|
-| S3 Bucket | `allergen-demo-kb-docs-*` | 存放法规文档 |
-| Knowledge Base | `allergen-demo-peal-kb` | RAG 服务 |
-| OpenSearch Collection | `allergen-demo-peal` | 向量存储 |
-| IAM Role | `allergen-demo-bedrock-kb-role` | 服务角色 |
+| S3 Bucket | `allergen-demo-kb-docs-*` | Stores regulatory documents |
+| Knowledge Base | `allergen-demo-peal-kb` | RAG service |
+| OpenSearch Collection | `allergen-demo-peal` | Vector store |
+| IAM Role | `allergen-demo-bedrock-kb-role` | Service role |
 
-### IAM 权限（自动配置）
+### IAM permissions (configured automatically)
 
-你的执行身份需要以下权限：
+Your execution identity needs the following permissions:
 
 ```json
 {
@@ -285,70 +285,70 @@ aws bedrock-agent-runtime retrieve \
 
 ---
 
-## 九、常见问题
+## 9. Frequently asked questions
 
-### 1. Terraform apply 失败：权限不足
+### 1. Terraform apply fails: insufficient permissions
 
-**错误信息**：
+**Error message**:
 ```
 Error: AccessDeniedException: User is not authorized to perform: bedrock-agent:CreateKnowledgeBase
 ```
 
-**解决方法**：
-确保你的 AWS 身份有以下权限：
+**Solution**:
+Make sure your AWS identity has the following permissions:
 - `bedrock-agent:*`
 - `aoss:*`
 - `iam:CreateRole`
 - `s3:CreateBucket`
 
-### 2. Knowledge Base ID 为空
+### 2. Knowledge Base ID is empty
 
-**可能原因**：
-- `create_knowledge_base = false`（默认值）
-- Terraform apply 未完成
+**Possible causes**:
+- `create_knowledge_base = false` (the default value)
+- Terraform apply was not completed
 
-**解决方法**：
+**Solution**:
 ```bash
-# 确认配置
+# Check the configuration
 grep "create_knowledge_base" terraform/terraform.tfvars
 
-# 重新 apply
+# Re-run apply
 terraform apply -var="create_knowledge_base=true"
 ```
 
-### 3. Ingestion 后仍无结果
+### 3. No results after ingestion
 
-**检查步骤**：
+**Steps to check**:
 ```bash
-# 1. 检查文档是否上传
+# 1. Check whether the documents were uploaded
 aws s3 ls s3://YOUR_KB_BUCKET/nz-peal/
 
-# 2. 检查 ingestion job 状态
+# 2. Check the ingestion job status
 aws bedrock-agent list-ingestion-jobs \
   --knowledge-base-id YOUR_KB_ID \
   --data-source-id YOUR_DS_ID
 
-# 3. 检查 OpenSearch 索引
+# 3. Check the OpenSearch index
 aws opensearchserverless list-collections
 ```
 
 ---
 
-## 十、快速检查清单
+## 10. Quick check checklist
 
 ```bash
-# 1. 检查 Terraform 变量
+# 1. Check the Terraform variable
 terraform console
 > var.create_knowledge_base
 true
 
-# 2. 检查 Knowledge Base 是否创建
+# 2. Check whether the Knowledge Base was created
 aws bedrock-agent list-knowledge-bases --region ap-southeast-2
 
-# 3. 检查 S3 文档
+# 3. Check the S3 documents
 aws s3 ls s3://$(terraform output -raw kb_docs_bucket)/nz-peal/
 
-# 4. 测试检索
+# 4. Test retrieval
 export KNOWLEDGE_BASE_ID=$(terraform output -raw knowledge_base_id)
 cd app
 LOCAL_MODE=false python -c "
@@ -360,27 +360,27 @@ print('engine:', r['engine'], '| chunks:', len(r['chunks']))
 
 ---
 
-## 十一、下一步
+## 11. Next steps
 
-配置完成后，你可以：
+Once the configuration is complete, you can:
 
-1. **测试 RAG 检索**
+1. **Test RAG retrieval**
    ```bash
    export KNOWLEDGE_BASE_ID=$(terraform output -raw knowledge_base_id)
    cd app
    LOCAL_MODE=false python -c "
    from services import allergen_service as svc
    r = svc.retrieve_context('fish allergen requirements')
-   assert r['engine'] == 'aws'   # 命中 Bedrock KB
+   assert r['engine'] == 'aws'   # Hit the Bedrock KB
    print('AWS RAG OK,', len(r['chunks']), 'chunks')
    "
    ```
 
-2. **测试完整流程**
+2. **Test the complete flow**
    ```bash
-   # 通过应用 UI 或 API：POST /api/allergens/extract
-   # （应用运行于真实 AWS 模式时自动使用 KB）
+   # Via the application UI or API: POST /api/allergens/extract
+   # (The application uses the KB automatically when running in real AWS mode)
    ```
 
-3. **集成到应用**
-   - 代码会自动使用 Knowledge Base（设 `KNOWLEDGE_BASE_ID` 即可，无需改代码）
+3. **Integrate into the application**
+   - The code automatically uses the Knowledge Base (just set `KNOWLEDGE_BASE_ID`; no code changes needed)

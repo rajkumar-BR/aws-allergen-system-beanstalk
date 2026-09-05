@@ -164,76 +164,88 @@ Bedrock model access must be explicitly enabled per AWS account and region befor
 
 With that done, you're ready for the "Quick start" steps below.
 
-## 运行模式选择
+## Run modes
 
-> 🧑‍🤝‍🧑 **团队新成员?** 完整的上手流程(企业共享账号、从 clone 到连云端运行)见
-> **[`ONBOARDING.md`](ONBOARDING.md)**——按它操作即可,无需看本 README 的细节。
+> 🧑‍🤝‍🧑 **New team member?** There is a full step-by-step onboarding guide
+> (shared enterprise account, from clone to running against the cloud) in
+> **[`ONBOARDING.md`](ONBOARDING.md)** — follow that instead of this section.
 
-本项目支持两种运行模式：
+This project supports two run modes:
 
-### **1. 真实 AWS 模式（默认，推荐）**
-使用 `~/.aws/credentials` 中的 IAM 长期凭证（AKIA开头），**无需频繁登录验证**，所有 AI 能力走真实 AWS 服务。
+### **1. Real AWS mode (default, recommended)**
 
-**启动方式（Windows PowerShell）：**
+Uses the IAM long-term credentials in `~/.aws/credentials` (AKIA-prefixed), so
+**no repeated login is needed**, and all AI features hit real AWS services.
+
+**Start (Windows PowerShell):**
 
 ```powershell
-# 一次配置长期凭证（IAM 用户 Access Key）
+# Configure long-term credentials once (IAM user access key)
 aws configure
 #   AWS Access Key ID: AKIA...
 #   Secret Access Key: ********
 #   Default region name: ap-southeast-2
 #   Default output format: json
 
-# 设置分区域环境变量并启动（推荐用 setup_aws_env.ps1）
-.\setup_aws_env.ps1     # 设置所有区域/资源名环境变量
+# Set per-service region env vars (recommended: use setup_aws_env.ps1)
+.\setup_aws_env.ps1     # sets all region/resource-name env vars
 
-# 启动应用
+# Start the app
 cd app
 .\.venv\Scripts\python.exe application.py
-# 访问 http://localhost:8000
+# Open http://localhost:8000
 ```
 
-**分区域说明（重要）：** 本项目资源跨两个 AWS 区域，`setup_aws_env.ps1` / 服务代码按服务区分区域：
+**Per-service regions (important):** this project's resources span two AWS
+regions, so `setup_aws_env.ps1` / the service code resolve a region per
+service:
 
-| 服务 | 区域 | 说明 |
+| Service | Region | Notes |
 |---|---|---|
-| Bedrock（提取/翻译） | `ap-southeast-2` | inference profile 所在区域 |
+| Bedrock (extraction + translation) | `ap-southeast-2` | inference profile region |
 | Knowledge Base (RAG) | `ap-southeast-2` | KB `YOUR_KNOWLEDGE_BASE_ID` |
-| DynamoDB | `us-east-1` | 表 `allergen-demo-dev-menu-items` |
-| S3（菜单上传桶） | `us-east-1` | 桶 `allergen-demo-dev-menu-uploads-...` |
+| DynamoDB | `us-east-1` | table `allergen-demo-dev-menu-items` |
+| S3 (menu uploads bucket) | `us-east-1` | bucket `allergen-demo-dev-menu-uploads-...` |
 | Textract | `us-east-1` | OCR |
 
-每个服务模块支持独立区域覆盖变量（`BEDROCK_REGION` / `KB_REGION` / `DYNAMODB_REGION` / `S3_REGION` / `TEXTRACT_REGION`），缺省回退到 `AWS_REGION`。
+Each service module supports its own region override variable
+(`BEDROCK_REGION` / `KB_REGION` / `DYNAMODB_REGION` / `S3_REGION` /
+`TEXTRACT_REGION`), falling back to `AWS_REGION` when unset.
 
-**验证当前身份：**
+**Verify your identity:**
+
 ```
 aws sts get-caller-identity
-# arn:aws:iam::...:user/...  → IAM 长期凭证（正确）
+# arn:aws:iam::...:user/...  → IAM long-term credentials (correct)
 ```
 
-### **2. 本地模拟模式（无需 AWS）**
-无需 AWS 账户，使用本地规则引擎 + 本地文档 + JSON 文件存储，方便离线开发和 UI 调试。
+### **2. Local simulation mode (no AWS)**
 
-```bash
-# Windows PowerShell（Windows 下 run_local.sh 不适用，手动设置）
+No AWS account needed — uses the local rules engine + local docs + JSON file
+storage, handy for offline development and UI debugging.
+
+```powershell
+# Windows PowerShell
 $env:LOCAL_MODE = "true"
 cd app
 .\.venv\Scripts\python.exe application.py
 ```
 
-本地模式下 Bedrock → 关键词规则引擎、RAG → 本地 `docs/*.md`、S3 → 临时目录、DynamoDB → JSON 文件，所有降级都清晰标注（如 `[Spanish - offline]`）。
+In local mode, Bedrock → keyword rules engine, RAG → local `docs/*.md`, S3 →
+temp directory, DynamoDB → JSON file; every degraded output is clearly labelled
+(e.g. `[Spanish - offline]`).
 
-**本地模式服务映射：**
+**Local-mode service mapping:**
 
-| AWS 服务 | 本地替代 |
+| AWS service | Local replacement |
 |---|---|
-| Bedrock | 规则引擎 + 关键词匹配 |
-| Knowledge Base | 本地 `docs/` 文档检索 |
-| Textract | 文本文件解析 |
-| S3 | 临时目录 |
-| DynamoDB | JSON 文件（`%TEMP%\allergen_local_db.json`） |
+| Bedrock | rules engine + keyword matching |
+| Knowledge Base | local `docs/` document retrieval |
+| Textract | text file parsing |
+| S3 | temp directory |
+| DynamoDB | JSON file (`%TEMP%\allergen_local_db.json`) |
 
-**本地模式端到端验证（无需 AWS）：**
+**End-to-end local-mode check (no AWS):**
 
 ```powershell
 cd app

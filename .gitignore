@@ -32,6 +32,15 @@ htmlcov/
 venv/
 env/
 ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-delete-this-directory.txt
+pip-log.txt
+pip-selfcheck.json
+pytestdebug.log
 
 # Node.js
 node_modules/
@@ -42,6 +51,11 @@ yarn-error.log*
 # Terraform additional
 *.tfvars.json
 *.terraform.tfstate.lock.info
+terraform.tfvars
+*.tfvars
+*.tfstate.backup
+crash.log
+crash.*.log
 
 # Local development
 .local/

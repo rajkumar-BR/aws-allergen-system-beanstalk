@@ -1,47 +1,47 @@
-# Knowledge Base 使用指南
+# Knowledge Base Usage Guide
 
-## 一、在代码中使用 Knowledge Base
+## 1. Using the Knowledge Base in Code
 
-### 1. 基本用法
+### 1.1 Basic Usage
 
 ```python
-from services.rag_service import retrieve_context, is_available
+from services.allergen_service import retrieve_context, is_kb_available
 
-# 检查 Knowledge Base 是否可用
-if is_available():
-    print("✅ Knowledge Base 可用")
+# Check whether the Knowledge Base is available
+if is_kb_available():
+    print("✅ Knowledge Base available")
 
-# 检索法规上下文
+# Retrieve regulatory context
 query = "What are the allergen declaration requirements for peanuts?"
 result = retrieve_context(query, top_k=5)
 
-print(f"引擎: {result['engine']}")  # 'aws', 'local', 或 'none'
-print(f"找到 {len(result['chunks'])} 个相关片段")
+print(f"Engine: {result['engine']}")  # 'aws', 'local', or 'none'
+print(f"Found {len(result['chunks'])} relevant chunks")
 
-# 访问检索结果
+# Access the retrieval results
 for chunk in result['chunks']:
-    print(f"来源: {chunk['source']}")
-    print(f"内容: {chunk['text']}")
-    print(f"分数: {chunk['score']}")
+    print(f"Source: {chunk['source']}")
+    print(f"Content: {chunk['text']}")
+    print(f"Score: {chunk['score']}")
 ```
 
-### 2. 在 Compliance Verification 中使用
+### 1.2 Using It in Compliance Verification
 
-Knowledge Base 已集成到 `compliance_service.verify_compliance()`:
+The Knowledge Base is integrated into `allergen_service.verify()`:
 
 ```python
 from services.allergen_service import verify
-from services.rag_service import retrieve_context
+from services.allergen_service import retrieve_context
 
-# 方式 1: 直接调用 verify（会自动调用 RAG）
+# Option 1: call verify directly (it invokes RAG automatically)
 result = verify("Chicken Satay", allergens=["peanuts", "soy"])
 print(result.to_json())
 
-# 方式 2: 手动调用 RAG
+# Option 2: call RAG manually
 dish_text = "Chicken Satay with peanut sauce"
 retrieval = retrieve_context(dish_text)
 
-# retrieval 结构:
+# retrieval structure:
 # {
 #     "engine": "aws" | "local" | "none",
 #     "chunks": [
@@ -55,70 +55,68 @@ retrieval = retrieve_context(dish_text)
 # }
 ```
 
-### 3. 在 Pipeline 中使用
+### 1.3 Using It in the Pipeline
 
-完整的端到端流程：
+The complete end-to-end flow:
 
 ```python
-from services.allergen_service import extract
-from services.rag_service import retrieve_context
-from services.compliance_engine import verify_compliance
+from services.allergen_service import extract, verify, retrieve_context
 
-# 步骤 1: 过敏原抽取
+# Step 1: allergen extraction
 dish_name = "Seafood Chowder"
 description = "Creamy soup with fish, prawns and milk"
 extraction = extract(dish_name, description)
 
-# 步骤 2: RAG 检索法规证据
+# Step 2: retrieve regulatory evidence via RAG
 dish_text = f"{dish_name} {description}"
 retrieval = retrieve_context(dish_text, top_k=5)
 
-# 步骤 3: 合规判定（结合 RAG 结果）
-# compliance_service 会使用 retrieval 结果
+# Step 3: compliance verdict (incorporating the RAG results)
+# compliance_service uses the retrieval result
 from services.compliance_service import verify_compliance
 compliance = verify_compliance(
     dish_name,
     description,
-    extraction.confirmed_names,  # LLM 抽取的过敏原
-    [],  # 规则引擎结果（可选）
-    retrieval  # RAG 检索结果
+    extraction.confirmed_names,  # allergens extracted by the LLM
+    [],  # rule engine results (optional)
+    retrieval  # RAG retrieval results
 )
 ```
 
-## 二、环境配置
+## 2. Environment Configuration
 
-### 必需的环境变量
+### Required Environment Variables
 
 ```bash
-# Knowledge Base ID（从 Terraform 或 Console 获取）
+# Knowledge Base ID (obtained from Terraform or the Console)
 export KNOWLEDGE_BASE_ID=ABCDEFGHIJ
 
-# AWS 区域
+# AWS region
 export AWS_REGION=ap-southeast-2
 
-# 禁用本地模式（使用 AWS）
+# Disable local mode (use AWS)
 export LOCAL_MODE=false
 ```
 
-### 可选：使用 AWS Profile
+### Optional: Using an AWS Profile
 
 ```bash
-# 使用特定的 AWS profile
+# Use a specific AWS profile
 export AWS_PROFILE=your-profile-name
 ```
 
-## 三、测试方法
+## 3. Testing
 
-### 1. 快速连接测试
+### 3.1 Quick Connectivity Test
 
 ```bash
-# 设置 Knowledge Base ID
+# Set the Knowledge Base ID
 export KNOWLEDGE_BASE_ID=your-kb-id
 
-# 运行快速测试（通过应用 API 或直接调用 allergen_service）
-# 方式一：通过 API（需应用运行）
+# Run a quick test (via the application API or by calling allergen_service directly)
+# Option 1: through the API (requires the app to be running)
 # POST /api/allergens/extract  { "dish_name": "...", "description": "..." }
-# 方式二：直接调函数
+# Option 2: call the function directly
 cd app
 LOCAL_MODE=false KNOWLEDGE_BASE_ID=your-kb-id python -c "
 from services import allergen_service as svc
@@ -127,10 +125,10 @@ print(r['engine'], len(r['chunks']))
 "
 ```
 
-### 2. 完整测试
+### 3.2 Full Test
 
 ```bash
-# 本地模式测试（使用 docs/ 本地语料）
+# Local mode test (uses the local docs/ corpus)
 cd app
 LOCAL_MODE=true python -c "
 from services import allergen_service as svc
@@ -139,7 +137,7 @@ assert r['engine'] == 'local'
 print('local RAG OK:', len(r['chunks']), 'chunks')
 "
 
-# AWS 模式测试（需真实凭证）
+# AWS mode test (requires real credentials)
 export KNOWLEDGE_BASE_ID=your-kb-id
 cd app
 LOCAL_MODE=false python -c "
@@ -150,86 +148,86 @@ print('aws RAG OK:', len(r['chunks']), 'chunks')
 "
 ```
 
-### 3. 单元测试
+### 3.3 Unit Tests
 
 ```bash
 cd app
-python -m unittest discover -s tests -p "test_*.py" -v   # 如 tests 存在
+python -m unittest discover -s tests -p "test_*.py" -v   # if the tests directory exists
 ```
 
-## 四、降级行为
+## 4. Fallback Behavior
 
-RAG 服务会自动降级：
+The RAG service falls back automatically:
 
-1. **AWS 模式**：`KNOWLEDGE_BASE_ID` 已设置 + `LOCAL_MODE=false`
-   - 调用 Bedrock Knowledge Base `Retrieve` API
-   - 返回 `{"engine": "aws", "chunks": [...]}`
+1. **AWS mode**: `KNOWLEDGE_BASE_ID` is set + `LOCAL_MODE=false`
+   - Calls the Bedrock Knowledge Base `Retrieve` API
+   - Returns `{"engine": "aws", "chunks": [...]}`
 
-2. **本地模式**：以下情况自动降级
+2. **Local mode**: automatically falls back in the following cases
    - `LOCAL_MODE=true`
-   - `KNOWLEDGE_BASE_ID` 未设置
-   - AWS 调用失败（权限、网络等）
-   - 返回 `{"engine": "local", "chunks": [...]}`
+   - `KNOWLEDGE_BASE_ID` is not set
+   - AWS calls fail (permissions, network, etc.)
+   - Returns `{"engine": "local", "chunks": [...]}`
 
-3. **无结果**：没有找到相关内容
-   - 返回 `{"engine": "none", "chunks": []}`
+3. **No results**: no relevant content is found
+   - Returns `{"engine": "none", "chunks": []}`
 
-## 五、检查 Knowledge Base 状态
+## 5. Checking the Knowledge Base Status
 
-### 在代码中检查
+### Checking in Code
 
 ```python
 from services import allergen_service as svc
 
 if svc.is_kb_available():
-    print("将使用 AWS Knowledge Base")
+    print("Will use AWS Knowledge Base")
 else:
-    print("将使用本地 docs/ 搜索")
+    print("Will use local docs/ search")
 ```
 
-### 使用 AWS CLI 检查
+### Checking with the AWS CLI
 
 ```bash
-# 列出所有 Knowledge Bases
+# List all Knowledge Bases
 aws bedrock-agent list-knowledge-bases \
   --region ap-southeast-2
 
-# 获取特定 Knowledge Base 详情
+# Get details of a specific Knowledge Base
 aws bedrock-agent get-knowledge-base \
   --knowledge-base-id YOUR_KB_ID \
   --region ap-southeast-2
 
-# 测试检索
+# Test retrieval
 aws bedrock-agent-runtime retrieve \
   --knowledge-base-id YOUR_KB_ID \
   --retrieval-query '{"text": "peanut allergen requirements"}' \
   --region ap-southeast-2
 ```
 
-## 六、常见问题
+## 6. Frequently Asked Questions
 
-### 1. Knowledge Base 返回空结果
+### 6.1 Knowledge Base Returns Empty Results
 
-**可能原因**：
-- Knowledge Base 还没有 ingestion
-- 文档格式不支持
-- 查询太模糊
+**Possible causes**:
+- The Knowledge Base has not been ingested yet
+- The document format is not supported
+- The query is too vague
 
-**解决方法**：
+**Solutions**:
 ```bash
-# 检查 data source 状态
+# Check the data source status
 aws bedrock-agent list-data-sources \
   --knowledge-base-id YOUR_KB_ID
 
-# 触发 ingestion job
+# Trigger an ingestion job
 aws bedrock-agent start-ingestion-job \
   --knowledge-base-id YOUR_KB_ID \
   --data-source-id YOUR_DS_ID
 ```
 
-### 2. 权限错误
+### 6.2 Permission Errors
 
-**需要的 IAM 权限**：
+**Required IAM permissions**:
 ```json
 {
   "Effect": "Allow",
@@ -241,9 +239,9 @@ aws bedrock-agent start-ingestion-job \
 }
 ```
 
-### 3. 降级到本地模式
+### 6.3 Falling Back to Local Mode
 
-检查以下配置：
+Check the following configuration:
 ```python
 import os
 
@@ -252,9 +250,9 @@ print(f"KNOWLEDGE_BASE_ID: {os.environ.get('KNOWLEDGE_BASE_ID', '')}")
 print(f"AWS_REGION: {os.environ.get('AWS_REGION', 'ap-southeast-2')}")
 ```
 
-## 七、输出格式
+## 7. Output Formats
 
-### AWS 模式输出
+### AWS Mode Output
 
 ```json
 {
@@ -270,7 +268,7 @@ print(f"AWS_REGION: {os.environ.get('AWS_REGION', 'ap-southeast-2')}")
 }
 ```
 
-### 本地模式输出
+### Local Mode Output
 
 ```json
 {
