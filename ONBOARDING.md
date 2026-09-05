@@ -56,8 +56,9 @@ existing one for the team) and attaches the app's IAM policy (see
 > pair in the IAM console (`Users → <you> → Security credentials →
 > Create access key`).
 
-**Step 2 — Install the AWS CLI** (see README `AWS credentials setup` → step 1
-for the installer links), then run:
+**Step 2 — Install the AWS CLI** (installer links for macOS / Linux / Windows
+are in the [AWS docs](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)),
+then run:
 
 ```powershell
 aws configure
