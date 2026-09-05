@@ -36,7 +36,7 @@ Base managed retrieval), `gunicorn`, `Werkzeug`.
 ## 2. Configure AWS credentials (one-time, per machine)
 
 You need credentials for the **enterprise account** that owns the deployed
-resources (Bedrock KB `CBFZTLLUHU`, DynamoDB table, S3 bucket).
+resources (Bedrock KB `YOUR_KNOWLEDGE_BASE_ID`, DynamoDB table, S3 bucket).
 
 ### Option A — IAM long-term keys (simplest, recommended)
 
@@ -54,7 +54,7 @@ Verify:
 
 ```powershell
 aws sts get-caller-identity
-# Should show the enterprise account ID (e.g. 669232219904) and your IAM user.
+# Should show the enterprise account ID (e.g. 123456789012) and your IAM user.
 ```
 
 ### Option B — AWS SSO (if your team uses Identity Center)
@@ -103,7 +103,7 @@ Then open http://localhost:8000 in your browser.
 
 - `/health` returns `"local_mode": "false"`
 - Allergen extraction → **Bedrock** (`engine: bedrock-tool-use`)
-- Compliance citations → **Bedrock Knowledge Base** (KB `CBFZTLLUHU`, `engine=aws`)
+- Compliance citations → **Bedrock Knowledge Base** (KB `YOUR_KNOWLEDGE_BASE_ID`, `engine=aws`)
 - Storage → **DynamoDB** (`allergen-demo-dev-menu-items`) + **S3**
 - Translation → **Bedrock** with Amazon Translate fallback
 - Menu file upload → **Textract OCR**

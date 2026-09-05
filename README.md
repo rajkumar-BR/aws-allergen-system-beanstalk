@@ -136,7 +136,7 @@ repository):
 
 - They live under `[default]`, so **no `AWS_PROFILE` or env vars are required** -
   the SDK picks them up automatically.
-- Current account for this project: **`669232219904`** (IAM user `aws_user`),
+- Current account for this project: **`YOUR_AWS_ACCOUNT_ID`** (IAM user `allergen-system-dev`),
   region **`ap-southeast-2`**.
 - Verify which identity you're using: `aws sts get-caller-identity`.
   - `arn:aws:iam::...:user/...` → IAM long-term key (good).
@@ -198,7 +198,7 @@ cd app
 | 服务 | 区域 | 说明 |
 |---|---|---|
 | Bedrock（提取/翻译） | `ap-southeast-2` | inference profile 所在区域 |
-| Knowledge Base (RAG) | `ap-southeast-2` | KB `CBFZTLLUHU` |
+| Knowledge Base (RAG) | `ap-southeast-2` | KB `YOUR_KNOWLEDGE_BASE_ID` |
 | DynamoDB | `us-east-1` | 表 `allergen-demo-dev-menu-items` |
 | S3（菜单上传桶） | `us-east-1` | 桶 `allergen-demo-dev-menu-uploads-...` |
 | Textract | `us-east-1` | OCR |
@@ -222,6 +222,32 @@ cd app
 ```
 
 本地模式下 Bedrock → 关键词规则引擎、RAG → 本地 `docs/*.md`、S3 → 临时目录、DynamoDB → JSON 文件，所有降级都清晰标注（如 `[Spanish - offline]`）。
+
+**本地模式服务映射：**
+
+| AWS 服务 | 本地替代 |
+|---|---|
+| Bedrock | 规则引擎 + 关键词匹配 |
+| Knowledge Base | 本地 `docs/` 文档检索 |
+| Textract | 文本文件解析 |
+| S3 | 临时目录 |
+| DynamoDB | JSON 文件（`%TEMP%\allergen_local_db.json`） |
+
+**本地模式端到端验证（无需 AWS）：**
+
+```powershell
+cd app
+$env:LOCAL_MODE='true'
+.\.venv\Scripts\python.exe -c "
+from services import allergen_service as svc
+e = svc.extract('Seafood Chowder', 'creamy soup with fish, prawns and milk')
+print('Extracted:', [a.name for a in e.allergens])
+c = svc.verify('Seafood Chowder', ['Fish','Crustacea','Milk'])
+print('Compliance:', c.status)
+r = svc.retrieve_context('fish requirements')
+print('RAG chunks:', len(r['chunks']))
+"
+```
 
 ## Quick start (real AWS deployment)
 
